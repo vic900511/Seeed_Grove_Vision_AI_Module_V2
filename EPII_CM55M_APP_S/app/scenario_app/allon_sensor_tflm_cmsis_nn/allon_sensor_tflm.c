@@ -5,6 +5,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include "powermode_export.h"
+// #include "arm_nn_compiler.h"
+#include "arm_nnfunctions.h"
+// #include "arm_nnsupportfunctions.h"
 
 #define WE2_CHIP_VERSION_C		0x8538000c
 #define FRAME_CHECK_DEBUG		1
@@ -27,7 +30,6 @@
 #endif
 
 #include "WE2_device.h"
-#include "cvapp.h"
 #include "spi_master_protocol.h"
 #include "hx_drv_spi.h"
 #include "spi_eeprom_comm.h"
@@ -73,233 +75,152 @@
     #define dbg_app_log(fmt, ...)
 #endif
 
-
 #define MAX_STRING  100
 #define DEBUG_SPIMST_SENDPICS		(0x01) //0x00: off/ 0x01: JPEG/0x02: YUV422/0x03: YUV420/0x04: YUV400/0x05: RGB
 #define SPI_SEN_PIC_CLK				(10000000)
+#define DWT_CYCCNT_START() DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk
+#define DWT_CYCCNT_STOP() DWT->CTRL &= ~DWT_CTRL_CYCCNTENA_Msk
+#define DWT_CYCCNT_RESET() DWT->CYCCNT = 0
+#define DWT_CYCCNT_GET() (DWT->CYCCNT)
+#define DWT_CYCCNT_EN() CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk
 
+void initialize_BMM_metadata(cmsis_nn_fc_params *fc_params, cmsis_nn_per_tensor_quant_params *quant_params, cmsis_nn_dims *input_dims, cmsis_nn_dims *filter_dims, cmsis_nn_dims *output_dims) {
+    fc_params->input_offset = 0;
+    fc_params->filter_offset = 0;
+    fc_params->output_offset = 0;
+    fc_params->activation.min = INT8_MIN;
+    fc_params->activation.max = INT8_MAX;
 
-//flash image start position
-//To prevent information losses when M55M sleep w/o retentation, we will add needed information in the MB share data
-/*volatile*/ uint32_t g_flash_record_start_pos = 0;
-/*volatile*/ uint32_t g_flash_image_cur_pos = 0;
-/*volatile*/ uint32_t g_flash_length_cur_pos = 0;
-/*volatile*/ uint32_t g_idle_time = 0;
-/*volatile*/ uint32_t g_img_data = 0;
+    quant_params->multiplier = 1113206695;
+    quant_params->shift = -4;
 
-static uint8_t 	g_xdma_abnormal, g_md_detect, g_cdm_fifoerror, g_wdt1_timeout, g_wdt2_timeout,g_wdt3_timeout;
-static uint8_t 	g_hxautoi2c_error, g_inp1bitparer_abnormal;
-static uint32_t g_dp_event;
-static uint8_t 	g_frame_ready;
-static uint32_t g_cur_jpegenc_frame;
-static uint8_t 	g_time;
-static uint8_t g_spi_master_initial_status;
-/*volatile*/ uint32_t jpeg_addr, jpeg_sz;
+    input_dims->n = LHS_ROW; 
+    input_dims->h = 1;
+    input_dims->w = 1;
+    input_dims->c = LHS_COL;
 
-void app_start_state(APP_STATE_E state);
+    filter_dims->n = RHS_ROW;
+    filter_dims->h = 1;
+    filter_dims->w = 1;
+    filter_dims->c = RHS_COL;
 
-
-static void dp_var_int()
-{
-	g_xdma_abnormal = 0;
-	g_md_detect = 0;
-	g_cdm_fifoerror = 0;
-	g_wdt1_timeout = 0;
-	g_wdt2_timeout = 0;
-	g_wdt3_timeout = 0;
-	g_inp1bitparer_abnormal = 0;
-	g_dp_event = 0;
-	g_frame_ready = 0;
-	g_time = 0;
-	g_cur_jpegenc_frame = 0;
-	g_hxautoi2c_error = 0;
-	g_spi_master_initial_status = 0;
+    output_dims->n = LHS_ROW;
+    output_dims->h = 1;
+    output_dims->w = 1;
+    output_dims->c = RHS_COL;
+    return;
 }
 
-static void dp_app_cv_eventhdl_cb(EVT_INDEX_E event)
-{
-	uint16_t err;
-	int32_t read_status;
-	uint32_t chipid, version;
+void BMM_Csr_test_lr(const int8_t *csr_data, const int32_t *csr_indices, const int32_t *csr_ptr, int8_t *input, int8_t *output) {
+    cmsis_nn_context *ctx = NULL;
+    cmsis_nn_fc_params fc_params;
+    cmsis_nn_per_tensor_quant_params quant_params;
+    cmsis_nn_dims input_dims, filter_dims, output_dims;
+    const int32_t *bias = NULL;
+    const cmsis_nn_dims *bias_dims = NULL;
+    initialize_BMM_metadata(&fc_params, &quant_params, &input_dims, &filter_dims, &output_dims);
+    DWT_CYCCNT_START();
+    DWT_CYCCNT_RESET();
 
-	dbg_printf(DBG_LESS_INFO, "EVT event = %d\n", event);
-	g_dp_event = event;
+    arm_csr_s8_lr(
+        ctx, &fc_params, &quant_params, &input_dims,
+        csr_data, csr_indices, csr_ptr,
+        &filter_dims, input,
+        bias_dims, bias,
+        &output_dims, output
+    );
 
-	switch(event)
-	{
-	case EVT_INDEX_1BITPARSER_ERR:  /*reg_inpparser_fs_cycle_error*/
-		hx_drv_inp1bitparser_get_errstatus(&err);
-		dbg_printf(DBG_LESS_INFO, "EVT_INDEX_1BITPARSER_ERR err=0x%x\r\n",err);
-		hx_drv_inp1bitparser_clear_int();
-		hx_drv_inp1bitparser_set_enable(0);
-		g_inp1bitparer_abnormal = 1;
-		break;
-	case EVT_INDEX_EDM_WDT1_TIMEOUT:
-		dbg_printf(DBG_LESS_INFO, "EVT_INDEX_EDM_WDT1_TlenIMEOUT\r\n");
-		g_wdt1_timeout = 1;
-		break;
-	case EVT_INDEX_EDM_WDT2_TIMEOUT:
-		dbg_printf(DBG_LESS_INFO,"EVT_INDEX_EDM_WDT2_TIMEOUT\r\n");
-		g_wdt2_timeout = 1;
-		break;
-	case EVT_INDEX_EDM_WDT3_TIMEOUT:
-		dbg_printf(DBG_LESS_INFO,"EVT_INDEX_EDM_WDT3_TIMEOUT\r\n");
-		g_wdt3_timeout = 1;
-		break;
-
-	case EVT_INDEX_CDM_FIFO_ERR:
-		/*
-		 * error happen need CDM timing & TPG setting
-		 * 1. SWRESET Datapath
-		 * 2. restart streaming flow
-		 */
-		dbg_printf(DBG_LESS_INFO, "EVT_INDEX_CDM_FIFO_ERR\r\n");
-		g_cdm_fifoerror = 1;
-
-		break;
-
-	case EVT_INDEX_XDMA_WDMA1_ABNORMAL:
-	case EVT_INDEX_XDMA_WDMA2_ABNORMAL:
-	case EVT_INDEX_XDMA_WDMA3_ABNORMAL:
-	case EVT_INDEX_XDMA_RDMA_ABNORMAL:
-		/*
-		 * error happen need
-		 * 1. SWRESET Datapath
-		 * 2. restart streaming flow
-		 */
-		dbg_printf(DBG_LESS_INFO, "EVT_INDEX_XDMA_WDMA123_ABNORMAL or EVT_INDEX_XDMA_RDMA_ABNORMAL\r\n");
-		g_xdma_abnormal = 1;
-		break;
-
-	case EVT_INDEX_CDM_MOTION:
-		/*
-		 * app anything want to do
-		 * */
-		dbg_printf(DBG_LESS_INFO, "Motion Detect\n");
-		g_md_detect = 1;
-		break;
-	case EVT_INDEX_XDMA_FRAME_READY:
-		g_cur_jpegenc_frame++;
-    	g_frame_ready = 1;
-		dbg_printf(DBG_LESS_INFO, "SENSORDPLIB_STATUS_XDMA_FRAME_READY %d \n", g_cur_jpegenc_frame);
-		break;
-
-	case EVT_INDEX_SENSOR_RTC_FIRE:
-		g_time++;
-		break;
-	case EVT_INDEX_HXAUTOI2C_ERR:
-		dbg_printf(DBG_LESS_INFO,"EVT_INDEX_HXAUTOI2C_ERR\r\n");
-		g_hxautoi2c_error = 1;
-		break;
-	default:
-		dbg_printf(DBG_LESS_INFO,"Other Event %d\n", event);
-		break;
-	}
-
-	if ( g_frame_ready == 1 )
-	{
-		g_frame_ready = 0;
-
-		cisdp_get_jpginfo(&jpeg_sz, &jpeg_addr);
-
-#ifdef CIS_IMX
-		hx_drv_scu_get_version(&chipid, &version);
-		if (chipid == WE2_CHIP_VERSION_C)   // mipi workaround for WE2 chip version C
-		{
-			cisdp_stream_off();
-			set_mipi_csirx_disable();
-		}
-#endif
-
-#if FRAME_CHECK_DEBUG
-		if(g_spi_master_initial_status == 0) {
-			hx_drv_scu_set_PB2_pinmux(SCU_PB2_PINMUX_SPI_M_DO_1, 1);
-			hx_drv_scu_set_PB3_pinmux(SCU_PB3_PINMUX_SPI_M_DI_1, 1);
-			hx_drv_scu_set_PB4_pinmux(SCU_PB4_PINMUX_SPI_M_SCLK_1, 1);
-			hx_drv_scu_set_PB11_pinmux(SCU_PB11_PINMUX_SPI_M_CS, 1);
-			if(hx_drv_spi_mst_open_speed(SPI_SEN_PIC_CLK) != 0)
-			{
-				dbg_printf(DBG_LESS_INFO, "DEBUG SPI master init fail\r\n");
-				sensordplib_retrigger_capture();
-				return ;
-			}
-			g_spi_master_initial_status = 1;
-		}
-
-		#if 1	// send JPG image
-		read_status = hx_drv_spi_mst_protocol_write_sp(jpeg_addr, jpeg_sz, DATA_TYPE_JPG);
-		dbg_printf(DBG_LESS_INFO, "write frame result %d, data size=%d,addr=0x%x\n", read_status, jpeg_sz, jpeg_addr);
-		#else	// send YUV420 image
-		SPI_CMD_DATA_TYPE image_type;
-		uint32_t wdam3_addr = app_get_raw_addr();
-		uint32_t data_size = app_get_raw_sz();
-		uint8_t imagesize_header[4];
-		image_type = DATA_TYPE_RAW_HEADER_IMG_YUV420_8U3C;
-		imagesize_header[0] = app_get_raw_width() & 0xFF;
-		imagesize_header[1] = (app_get_raw_width()>>8) & 0xFF;
-		imagesize_header[2] = app_get_raw_height() & 0xFF;
-		imagesize_header[3] = (app_get_raw_height()>>8) & 0xFF;
-		read_status =  hx_drv_spi_mst_protocol_write_ex(wdam3_addr, data_size, image_type, imagesize_header, 4);
-		dbg_printf(DBG_LESS_INFO, "addr=0x%x, YUV write frame result %d, data size %d\n", wdam3_addr, read_status, data_size);
-		#endif
-
-#endif
-
-		cv_run();
-
-#ifdef CIS_IMX
-		hx_drv_scu_get_version(&chipid, &version);
-		if (chipid == WE2_CHIP_VERSION_C)   // mipi workaround for WE2 chip version C
-		{
-    		set_mipi_csirx_enable();
-    		cisdp_stream_on();
-		}
-#endif
-
-		//recapture image
-		sensordplib_retrigger_capture();
-	}
-
-	if(g_md_detect == 1)
-	{
-		g_md_detect = 0;
-	}
-
-	if(g_inp1bitparer_abnormal == 1 || g_wdt1_timeout == 1 || g_wdt2_timeout == 1 || g_wdt3_timeout == 1
-			|| g_cdm_fifoerror == 1 || g_xdma_abnormal == 1 || g_hxautoi2c_error == 1)
-	{
-		cisdp_sensor_stop();
-	}
-
+    uint32_t cyccnt = DWT_CYCCNT_GET();
+    DWT_CYCCNT_STOP();
+    printf("bmm(Csr lr) Cycle Count: %ld\n", cyccnt);
+	return;
 }
 
-void app_start_state(APP_STATE_E state)
-{
-	if(state == APP_STATE_ALLON) {
-        if(cisdp_sensor_init() < 0)
-        {
-        	xprintf("\r\nCIS Init fail\r\n");
-        	APP_BLOCK_FUNC();
+void BMM_Fourrows_test_consec(const int8_t *nz_val, const int32_t *col_idx, const int32_t *start_idx, int8_t *input, int8_t *output) {
+	cmsis_nn_context *ctx = NULL;
+    cmsis_nn_fc_params fc_params;
+    cmsis_nn_per_tensor_quant_params quant_params;
+    cmsis_nn_dims input_dims, filter_dims, output_dims;
+    const int32_t *bias = NULL;
+    const cmsis_nn_dims *bias_dims = NULL;
+    initialize_BMM_metadata(&fc_params, &quant_params, &input_dims, &filter_dims, &output_dims);
+    DWT_CYCCNT_START();
+    DWT_CYCCNT_RESET();
+
+    arm_fourrows_s8_consecutive(
+        ctx, &fc_params, &quant_params, &input_dims,
+        nz_val, col_idx, start_idx,
+        &filter_dims, input,
+        &output_dims, output
+    );
+
+    uint32_t cyccnt = DWT_CYCCNT_GET();
+    DWT_CYCCNT_STOP();
+    printf("bmm(Fourrows Consecutive) Cycle Count: %ld\n", cyccnt);
+	return;
+}
+
+void BMM_Fourrows_test_tiling(const int8_t *nz_val, const int32_t *col_idx, const int32_t *start_idx, int8_t *input, int8_t *output) {
+	cmsis_nn_context *ctx = NULL;
+    cmsis_nn_fc_params fc_params;
+    cmsis_nn_per_tensor_quant_params quant_params;
+    cmsis_nn_dims input_dims, filter_dims, output_dims;
+    const int32_t *bias = NULL;
+    const cmsis_nn_dims *bias_dims = NULL;
+    initialize_BMM_metadata(&fc_params, &quant_params, &input_dims, &filter_dims, &output_dims);
+    DWT_CYCCNT_START();
+    DWT_CYCCNT_RESET();
+
+    arm_fourrows_s8_tiling(
+        ctx, &fc_params, &quant_params, &input_dims,
+        nz_val, col_idx, start_idx,
+        &filter_dims, input,
+        &output_dims, output
+    );
+
+    uint32_t cyccnt = DWT_CYCCNT_GET();
+    DWT_CYCCNT_STOP();
+    printf("bmm(Fourrows Tiling) Cycle Count: %ld\n", cyccnt);
+	return;
+}
+
+void BMM_FC_test(const int8_t *adj_mat, int8_t *input, int8_t *output) {
+	cmsis_nn_context *ctx = (cmsis_nn_context *)malloc(sizeof(cmsis_nn_context));
+    cmsis_nn_fc_params fc_params;
+    cmsis_nn_per_tensor_quant_params quant_params;
+    cmsis_nn_dims input_dims, filter_dims, output_dims;
+    const int32_t *bias = NULL;
+    const cmsis_nn_dims *bias_dims = NULL;
+    initialize_BMM_metadata(&fc_params, &quant_params, &input_dims, &filter_dims, &output_dims);
+
+    int32_t buffer[RHS_COL] = {0};
+    ctx->buf = (void *)buffer;
+
+    DWT_CYCCNT_START();
+    DWT_CYCCNT_RESET();
+ 	arm_fully_connected_s8(
+        ctx, &fc_params, &quant_params, &input_dims,
+        adj_mat, &filter_dims,
+        input, bias_dims, bias,
+        &output_dims, output
+	);
+    uint32_t cyccnt = DWT_CYCCNT_GET();
+    DWT_CYCCNT_STOP();
+    printf("bmm(FC) Cycle Count: %ld\n", cyccnt);
+	return;
+}
+
+void print_output(int8_t *output, char *msg) {
+    puts(msg);
+    for(int i = 0; i < LHS_ROW; i++) {
+        for(int j = 0; j < RHS_COL; j++) {
+            printf("%d, ", output[i * RHS_COL + j]);
         }
-
-        dp_var_int();
-
-        //if wdma variable is zero when not init yet, then this step is a must be to retrieve wdma address
-        if(cisdp_dp_init(true, SENSORDPLIB_PATH_INT_INP_HW5X5_JPEG, dp_app_cv_eventhdl_cb, g_img_data, APP_DP_RES_YUV640x480_INP_SUBSAMPLE_1X) < 0)
-        {
-        	xprintf("\r\nDATAPATH Init fail\r\n");
-        	APP_BLOCK_FUNC();
-        }
-
-        event_handler_init();
-
-        cisdp_sensor_start();
-
-    	event_handler_start();
-	}
-
-
+    }
+    return;
 }
+
+
 /*******************************************************************************
  * Code
  ******************************************************************************/
@@ -307,25 +228,89 @@ void app_start_state(APP_STATE_E state)
  * @brief Main function
  */
 int app_main(void) {
+    DWT_CYCCNT_EN();
+    /* im2col
+    static int8_t input[RHS_ROW * RHS_COL] __attribute__((section(".arr"), aligned(4))) = {0};
+	static int8_t input_T[RHS_COL * RHS_ROW] __attribute__((section(".arr"), aligned(4))) = {0};
+    static int8_t output[LHS_ROW * RHS_COL] __attribute__((section(".arr"), aligned(4))) = {0};
 
-	uint32_t wakeup_event;
-	uint32_t wakeup_event1;
-
-	hx_drv_pmu_get_ctrl(PMU_pmu_wakeup_EVT, &wakeup_event);
-	hx_drv_pmu_get_ctrl(PMU_pmu_wakeup_EVT1, &wakeup_event1);
-    xprintf("wakeup_event=0x%x,WakeupEvt1=0x%x\n", wakeup_event, wakeup_event1);
-
-#if (FLASH_XIP_MODEL == 1)
-    hx_lib_spi_eeprom_open(USE_DW_SPI_MST_Q);
-    hx_lib_spi_eeprom_enable_XIP(USE_DW_SPI_MST_Q, true, FLASH_QUAD, true);
-#endif
-
-    if(cv_init(true, true)<0) {
-    	xprintf("cv init fail\n");
-    	return -1;
+    int im2col_cnt = 0;
+    for(int i = input_h_start; i < input_h_end; i += stride_h) {
+        int slide_h = i + filter_h;
+        if(slide_h > input_h_end) {            
+            break;
+        }
+        for(int j = input_w_start; j < input_w_end; j += stride_w) {
+            int slide_w = j + filter_w;
+            if(slide_w > input_w_end) {                
+                break;
+            }
+            // c -> w -> h
+            int8_t *input_buf = input + im2col_cnt;
+            for(int h = i; h < slide_h; h++) {
+                for(int w = j; w < slide_w; w++) {
+                    for(int c = 0; c < input_c; c++) {
+                        int idx = c + w * input_c + h * input_w_end * input_c;
+                        *input_buf = Input[idx];
+                        input_buf += RHS_COL;
+                    }
+                }
+            }
+            im2col_cnt++;
+        }
     }
+    printf("im2colcnt: %d\n", im2col_cnt);
 
-    app_start_state(APP_STATE_ALLON);
+    int idx = 0;
+    for(int i = 0; i < RHS_COL; i++) {
+        for(int j = 0; j < RHS_ROW; j++) {
+            input_T[idx++] = input[i + j * RHS_COL];
+        }
+    }
+	
+    BMM_FC_test(adj_mx, input_T, output); 
+    print_output(output, "FC result:\n");
 
-	return 0;
+    memset(output, 0, sizeof(output));
+    BMM_Csr_test_lr(csr_data, csr_indices, csr_ptr, input, output); 
+    print_output(output, "Csr lr result:\n");
+
+    memset(output, 0, sizeof(output));
+    BMM_Fourrows_test_tiling(nz_val, col_idx, start_idx, input, output);
+    print_output(output, "Fourrows Tiling result:\n");
+
+    memset(output, 0, sizeof(output));
+    BMM_Fourrows_test_consec(nz_val, col_idx, start_idx, input, output);
+    print_output(output, "Fourrows consecutive result:\n");
+    */
+
+    /* GNN FC & FIR 
+    static int8_t input[RHS_ROW * RHS_COL] __attribute__((section(".arr"), aligned(4))) = {0};
+    static int8_t input_T[RHS_COL * RHS_ROW] __attribute__((section(".arr"), aligned(4))) = {0};
+    static int8_t output[LHS_ROW * RHS_COL] __attribute__((section(".arr"), aligned(4))) = {0};
+
+    memcpy(input, Input, RHS_ROW * RHS_COL);
+    int idx = 0;
+    for(int i = 0; i < RHS_COL; i++) {
+        for(int j = 0; j < RHS_ROW; j++) {
+            input_T[idx++] = input[i + j * RHS_COL];
+        }
+    }
+	
+    // BMM_FC_test(adj_mx, input_T, output); // 12666343
+    // print_output(output, "FC result:\n"); 
+
+    // memset(output, 0, sizeof(output));
+    // BMM_Csr_test_lr(csr_data, csr_indices, csr_ptr, input, output); // 2219474
+    // print_output(output, "Csr lr result:\n");
+
+    // memset(output, 0, sizeof(output));
+    BMM_Fourrows_test_tiling(nz_val, col_idx, start_idx, input, output); // 3110158
+    // print_output(output, "Fourrows Tiling result:\n");
+
+    memset(output, 0, sizeof(output));
+    BMM_Fourrows_test_consec(nz_val, col_idx, start_idx, input, output); // 1889878
+    // print_output(output, "Fourrows consecutive result:\n");
+	*/
+    return 0;
 }

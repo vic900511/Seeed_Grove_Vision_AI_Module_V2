@@ -75,7 +75,12 @@ SECTIONS
     {
         *person_detect_model_data.o*(.text* .rodata*)
     } > CM55M_S_SRAM
-  
+
+    .arr : ALIGN(4)
+    {
+        *(.arr*)
+    } > CM55M_S_SRAM
+
     .noinit (NOLOAD): ALIGN(4)
     {
         *(.bss.NoInit*)

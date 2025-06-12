@@ -1651,6 +1651,44 @@ arm_cmsis_nn_status arm_fully_connected_s8(const cmsis_nn_context *ctx,
                                            const cmsis_nn_dims *output_dims,
                                            int8_t *output_data);
 
+arm_cmsis_nn_status arm_csr_s8_lr(const cmsis_nn_context *ctx,
+                                  const cmsis_nn_fc_params *fc_params,
+                                  const cmsis_nn_per_tensor_quant_params *quant_params,
+                                  const cmsis_nn_dims *input_dims,
+                                  const int8_t *csr_data,
+                                  const int32_t *csr_indices, 
+                                  const int32_t *csr_ptr,
+                                  const cmsis_nn_dims *filter_dims,
+                                  const int8_t *kernel,
+                                  const cmsis_nn_dims *bias_dims,
+                                  const int32_t *bias,
+                                  const cmsis_nn_dims *output_dims,
+                                  int8_t *output);
+
+arm_cmsis_nn_status arm_fourrows_s8_consecutive(const cmsis_nn_context *ctx,
+                                         const cmsis_nn_fc_params *fc_params,
+                                         const cmsis_nn_per_tensor_quant_params *quant_params,
+                                         const cmsis_nn_dims *input_dims,
+                                         const int8_t *nz_val,
+                                         const int32_t *col_idx,
+                                         const int32_t *start_idx,
+                                         const cmsis_nn_dims *filter_dims, 
+                                         const int8_t *kernel,
+                                         const cmsis_nn_dims *output_dims,
+                                         int8_t *output);
+
+arm_cmsis_nn_status arm_fourrows_s8_tiling(const cmsis_nn_context *ctx,
+                                         const cmsis_nn_fc_params *fc_params,
+                                         const cmsis_nn_per_tensor_quant_params *quant_params,
+                                         const cmsis_nn_dims *input_dims,
+                                         const int8_t *nz_val,
+                                         const int32_t *col_idx,
+                                         const int32_t *start_idx,
+                                         const cmsis_nn_dims *filter_dims, 
+                                         const int8_t *kernel,
+                                         const cmsis_nn_dims *output_dims,
+                                         int8_t *output);
+
 /**
  * @brief Basic s8 Fully Connected function using per channel quantization.
  *

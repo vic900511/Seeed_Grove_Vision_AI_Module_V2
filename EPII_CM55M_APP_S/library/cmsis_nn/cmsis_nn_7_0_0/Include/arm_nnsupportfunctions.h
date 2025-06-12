@@ -722,6 +722,18 @@ arm_cmsis_nn_status arm_nn_vec_mat_mult_t_s8(const int8_t *lhs,
                                              const int32_t address_offset,
                                              const int32_t rhs_offset);
 
+arm_cmsis_nn_status arm_nn_lr_csr_s8_for_bmm(const int8_t *data_arr,
+                                             const int32_t *col_idx,
+                                             const int32_t col_num,
+                                             const int8_t *rhs,
+                                             int8_t *dst,
+                                             const int32_t rhs_cols);
+
+arm_cmsis_nn_status arm_nn_fourrows_s8_for_bmm(const int8_t lhs_val,
+                                               const int8_t *rhs_vec, 
+                                               int8_t *dst,
+                                               const int32_t rhs_col);
+
 /**
  * @brief s8 Vector by Matrix (transposed) multiplication using per channel quantization for output
  *

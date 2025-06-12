@@ -55,6 +55,34 @@
 #if !defined(ARM_MATH_MVEI) && defined(ARM_MATH_DSP) && !defined(__ARMCC_VERSION) && !defined(__ICCARM__)
     #pragma GCC optimize("unroll-loops")
 #endif
+
+void printBinary(unsigned long long value, int bytes)
+{
+    // bits 是要印出多少位，可自行決定
+    for (int i = (bytes * 8) - 1; i >= 0; i--) {
+        unsigned long long mask = 1ULL << i;
+        putchar((value & mask) ? '1' : '0');
+        if (i != 0 && i % 8 == 0) {
+            putchar(' ');
+        }
+    }
+    putchar('\n');
+}
+
+
+#if defined(ARM_MATH_MVEI)
+    void printInt8x16(const int8x16_t vec) {
+        int8_t tmp[16];
+        vstrbq_s8(tmp, vec);
+
+        for (int i = 0; i < 16; i++) {
+            printf("%d ", tmp[i]);  
+        }
+        printf("\n");
+        return;
+    }
+#endif
+
 arm_cmsis_nn_status arm_nn_vec_mat_mult_t_s8(const int8_t *lhs,
                                              const int8_t *rhs,
                                              const int32_t *kernel_sum,
@@ -406,7 +434,6 @@ arm_cmsis_nn_status arm_nn_vec_mat_mult_t_s8(const int8_t *lhs,
 #if defined(ARM_MATH_MVEI)
         const int32_t row_loop_cnt = rhs_rows / 4;
         const uint32x4_t address_offset_array = {0, address_offset, address_offset * 2, address_offset * 3};
-
         for (int32_t i_row_loop_cnt = 0; i_row_loop_cnt < row_loop_cnt; i_row_loop_cnt++)
         {
             int32_t acc_0 = *kernel_sum++;
@@ -426,14 +453,14 @@ arm_cmsis_nn_status arm_nn_vec_mat_mult_t_s8(const int8_t *lhs,
 
             for (int32_t i = 0; i < col_loop_cnt; i++)
             {
-                mve_pred16_t p = vctp8q(col_cnt);
+                mve_pred16_t p = vctp8q(col_cnt); // col_cnt = 3 -> p = 7
                 col_cnt -= 16;
 
-                const int8x16_t input = vldrbq_z_s8(lhs_vec, p);
+                const int8x16_t input = vldrbq_z_s8(lhs_vec, p); // _z_ -> inactive lane 補 0； _m_ -> inactive lane 保留原值
 
                 const int8x16_t ker_0 = vldrbq_z_s8(rhs_0_ptr, p);
                 acc_0 = vmladavaq_s8(acc_0, ker_0, input);
-
+                     // vmladavq_s8 不用 accumulate 到 acc_0
                 const int8x16_t ker_1 = vldrbq_z_s8(rhs_1_ptr, p);
                 acc_1 = vmladavaq_s8(acc_1, ker_1, input);
 
@@ -451,15 +478,34 @@ arm_cmsis_nn_status arm_nn_vec_mat_mult_t_s8(const int8_t *lhs,
             }
             rhs += 4 * rhs_cols;
 
+            /*
+            acc_0 = 257;
+            acc_1 = 300;
+            acc_2 = 66;
+            acc_3 = 12;
+
             int32x4_t acc = {acc_0, acc_1, acc_2, acc_3};
 
-            acc = arm_requantize_mve(acc, dst_multiplier, dst_shift);
-            acc = vaddq_s32(acc, vdupq_n_s32(dst_offset));
-            acc = vmaxq_s32(acc, vdupq_n_s32(activation_min));
-            acc = vminq_s32(acc, vdupq_n_s32(activation_max));
+            lane 
+            0   00000000 00000000 00000001 00000001
+            1   00000000 00000000 00000001 00101100
+            2   00000000 00000000 00000000 01000010
+            3   00000000 00000000 00000000 00001100
+
+            (int8_t)lane 0 -> dst  
+            (int8_t)lane 1 -> dst + addr_offset 
+            (int8_t)lane 2 -> dst + 2 * addr_offset 
+            (int8_t)lane 3 -> dst + 3 * addr_offset 
+            */
+     
+            int32x4_t acc = {acc_0, acc_1, acc_2, acc_3};
+
+            // acc = arm_requantize_mve(acc, dst_multiplier, dst_shift);
+            // acc = vaddq_s32(acc, vdupq_n_s32(dst_offset)); // 每個 lane 分別去 add
+            // acc = vmaxq_s32(acc, vdupq_n_s32(activation_min));
+            // acc = vminq_s32(acc, vdupq_n_s32(activation_max));
 
             vstrbq_scatter_offset_s32(dst, address_offset_array, acc);
-
             dst += 4 * address_offset;
         }
 
@@ -477,7 +523,6 @@ arm_cmsis_nn_status arm_nn_vec_mat_mult_t_s8(const int8_t *lhs,
                 mve_pred16_t p = vctp8q(col_cnt);
                 col_cnt -= 16;
                 const int8x16_t input = vldrbq_z_s8(lhs_vec, p);
-
                 const int8x16_t ker_0 = vldrbq_z_s8(rhs_ptr, p);
                 acc_0 = vmladavaq_s8(acc_0, ker_0, input);
 
@@ -485,13 +530,13 @@ arm_cmsis_nn_status arm_nn_vec_mat_mult_t_s8(const int8_t *lhs,
                 rhs_ptr += 16;
             }
             rhs += rhs_cols;
-
-            acc_0 = arm_nn_requantize(acc_0, dst_multiplier, dst_shift);
-            acc_0 += dst_offset;
+            *dst += acc_0;
+            // acc_0 = arm_nn_requantize(acc_0, dst_multiplier, dst_shift);
+            // acc_0 += dst_offset;
 
             // Clamp the result
-            acc_0 = MAX(acc_0, activation_min);
-            *dst = MIN(acc_0, activation_max);
+            // acc_0 = MAX(acc_0, activation_min);
+            // *dst = MIN(acc_0, activation_max);
             dst += address_offset;
         }
 
@@ -718,6 +763,176 @@ arm_cmsis_nn_status arm_nn_vec_mat_mult_t_s8(const int8_t *lhs,
     return ARM_CMSIS_NN_SUCCESS;
 }
 
+// input not transposed
+arm_cmsis_nn_status arm_nn_lr_csr_s8_for_bmm(const int8_t *data_arr,
+                                          const int32_t *col_idx,
+                                          const int32_t col_num,
+                                          const int8_t *rhs,
+                                          int8_t *dst,
+                                          const int32_t rhs_cols)
+{   
+#if defined(ARM_MATH_MVEI)
+    const int32_t lhs_col_loop_cnt = col_num / 4;
+
+    for(int i = 0; i < lhs_col_loop_cnt; i++) {
+        const int8x16_t lhs_factor0 = vdupq_n_s8(*data_arr);
+        const int8_t *rhs_vec0 = rhs + *col_idx * rhs_cols;
+        data_arr++;
+        col_idx++;
+    
+        const int8x16_t lhs_factor1 = vdupq_n_s8(*data_arr);
+        const int8_t *rhs_vec1 = rhs + *col_idx * rhs_cols;
+        data_arr++;
+        col_idx++;
+
+        const int8x16_t lhs_factor2 = vdupq_n_s8(*data_arr);
+        const int8_t *rhs_vec2 = rhs + *col_idx * rhs_cols;
+        data_arr++;
+        col_idx++;
+
+        const int8x16_t lhs_factor3 = vdupq_n_s8(*data_arr);
+        const int8_t *rhs_vec3 = rhs + *col_idx * rhs_cols;
+        data_arr++;
+        col_idx++;
+        
+        const int32_t rhs_col_loop_cnt = (rhs_cols + 15) / 16;
+        uint32_t col_cnt = (uint32_t)rhs_cols;
+        int8_t *dst_tmp = dst;
+        for(int j = 0; j < rhs_col_loop_cnt; j++) {
+            mve_pred16_t p = vctp8q(col_cnt); 
+            col_cnt -= 16;
+
+            const int8x16_t ker_0 = vldrbq_z_s8(rhs_vec0, p);
+            rhs_vec0 += 16;
+            const int8x16_t ker_1 = vldrbq_z_s8(rhs_vec1, p);
+            rhs_vec1 += 16;
+            const int8x16_t ker_2 = vldrbq_z_s8(rhs_vec2, p);
+            rhs_vec2 += 16;
+            const int8x16_t ker_3 = vldrbq_z_s8(rhs_vec3, p);
+            rhs_vec3 += 16;
+
+            int8x16_t product0 = vmulq_s8(ker_0, lhs_factor0);
+            int8x16_t product1 = vmulq_s8(ker_1, lhs_factor1);
+            int8x16_t product2 = vmulq_s8(ker_2, lhs_factor2);
+            int8x16_t product3 = vmulq_s8(ker_3, lhs_factor3);
+            
+            const int8x16_t tmp = vldrbq_z_s8(dst_tmp, p);
+
+            int8x16_t acc0 = vaddq_s8(tmp, product0);
+            int8x16_t acc1 = vaddq_s8(acc0, product1);
+            int8x16_t acc2 = vaddq_s8(acc1, product2);
+            int8x16_t acc3 = vaddq_s8(acc2, product3);
+            
+            vstrbq_p_s8(dst_tmp, acc3, p);
+            dst_tmp += 16;
+        }
+    }
+    const int lhs_loop_cnt = col_num % 4;
+    for(int i = 0; i < lhs_loop_cnt; i++) {
+        const int8x16_t lhs_factor = vdupq_n_s8(*data_arr);
+        const int8_t *rhs_vec = rhs + *col_idx * rhs_cols;
+        data_arr++;
+        col_idx++;
+
+        const int32_t rhs_col_loop_cnt = (rhs_cols + 15) / 16;
+        uint32_t col_cnt = (uint32_t)rhs_cols;
+        int8_t *dst_tmp = dst;
+        for(int j = 0; j < rhs_col_loop_cnt; j++) {
+            mve_pred16_t p = vctp8q(col_cnt); 
+            col_cnt -= 16;
+
+            const int8x16_t ker = vldrbq_z_s8(rhs_vec, p);
+            rhs_vec += 16;
+            
+            int8x16_t product = vmulq_s8(ker, lhs_factor);
+            const int8x16_t tmp = vldrbq_z_s8(dst_tmp, p);
+            int8x16_t acc0 = vaddq_s8(tmp, product);
+            
+            vstrbq_p_s8(dst_tmp, acc0, p);
+            dst_tmp += 16;
+        }
+    }
+
+#endif
+    return ARM_CMSIS_NN_SUCCESS;
+}
+
+arm_cmsis_nn_status arm_nn_fourrows_s8_for_bmm(const int8_t lhs_val,
+                                               const int8_t *rhs_vec, 
+                                               int8_t *dst,
+                                               const int32_t rhs_cols)
+{
+#if defined(ARM_MATH_MVEI)
+    // const int32_t col_loop_cnt = (rhs_cols + 15) / 16;
+    // const int8x16_t lhs_factor = vdupq_n_s8(lhs_val);
+    // uint32_t col_cnt = (uint32_t)rhs_cols;
+    
+    // for (int32_t i = 0; i < col_loop_cnt; i++) {
+    //     mve_pred16_t p = vctp8q(col_cnt);
+    //     col_cnt -= 16;
+    //     const int8x16_t ker_0 = vldrbq_z_s8(rhs_vec, p);
+    //     int8x16_t product = vmulq_s8(ker_0, lhs_factor);
+    //     const int8x16_t tmp = vldrbq_z_s8(dst, p);
+    //     int8x16_t acc = vaddq_s8(tmp, product);
+    //     vstrbq_p_s8(dst, acc, p);
+
+    //     dst += 16;
+    //     rhs_vec += 16;
+    // }
+    const int32_t col_loop_cnt = rhs_cols / 64;
+    const int8x16_t lhs_factor = vdupq_n_s8(lhs_val);
+    
+    for (int32_t i = 0; i < col_loop_cnt; i++) {
+        const int8x16_t ker_0 = vldrbq_s8(rhs_vec);
+        rhs_vec += 16;
+        const int8x16_t ker_1 = vldrbq_s8(rhs_vec);
+        rhs_vec += 16;
+        const int8x16_t ker_2 = vldrbq_s8(rhs_vec);
+        rhs_vec += 16;        
+        const int8x16_t ker_3 = vldrbq_s8(rhs_vec);
+        rhs_vec += 16;
+
+        int8x16_t product0 = vmulq_s8(ker_0, lhs_factor);
+        int8x16_t product1 = vmulq_s8(ker_1, lhs_factor);
+        int8x16_t product2 = vmulq_s8(ker_2, lhs_factor);
+        int8x16_t product3 = vmulq_s8(ker_3, lhs_factor);
+
+        const int8x16_t tmp0 = vldrbq_s8(dst);
+        int8x16_t acc0 = vaddq_s8(tmp0, product0);
+        vstrbq_s8(dst, acc0);
+        dst += 16;
+
+        const int8x16_t tmp1 = vldrbq_s8(dst);
+        int8x16_t acc1 = vaddq_s8(tmp1, product1);
+        vstrbq_s8(dst, acc1);
+        dst += 16;
+       
+        const int8x16_t tmp2 = vldrbq_s8(dst);
+        int8x16_t acc2 = vaddq_s8(tmp2, product2);
+        vstrbq_s8(dst, acc2);
+        dst += 16;
+
+        const int8x16_t tmp3 = vldrbq_s8(dst);
+        int8x16_t acc3 = vaddq_s8(tmp3, product3);
+        vstrbq_s8(dst, acc3);
+        dst += 16;
+    }
+    uint32_t col_cnt = (uint32_t)rhs_cols % 64;
+    for (int32_t i = 64 * col_loop_cnt; i < rhs_cols; i += 16) {
+        mve_pred16_t p = vctp8q(col_cnt);
+        col_cnt -= 16;
+        const int8x16_t ker_0 = vldrbq_z_s8(rhs_vec, p);
+        int8x16_t product = vmulq_s8(ker_0, lhs_factor);
+        const int8x16_t tmp = vldrbq_z_s8(dst, p);
+        int8x16_t acc = vaddq_s8(tmp, product);
+        vstrbq_p_s8(dst, acc, p);
+
+        dst += 16;
+        rhs_vec += 16;
+    }
+#endif
+    return ARM_CMSIS_NN_SUCCESS;
+}
 /**
  * @} end of Doxygen group
  */

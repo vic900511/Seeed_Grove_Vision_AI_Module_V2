@@ -1,13 +1,23 @@
 #ifndef APP_SCENARIO_ALLON_SENSOR_TFLM_PERSON_DETECT_MODEL_DATA_H_
 #define APP_SCENARIO_ALLON_SENSOR_TFLM_PERSON_DETECT_MODEL_DATA_H_
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <stdint.h>
 
-extern const unsigned char g_person_detect_model_data[];
+#define LHS_ROW 256
+#define LHS_COL 64
+#define RHS_ROW 64
+#define RHS_COL 1000
 
-#ifdef __cplusplus
-}
+// extern const int input_h_start, input_h_end, input_w_start, input_w_end, input_c;
+// extern const int filter_h, filter_w;
+// extern const int stride_h, stride_w;
+extern const int8_t Input[];
+extern const int8_t adj_mx[];
+extern const int8_t nz_val[];
+extern const int32_t col_idx[];
+extern const int32_t start_idx[];
+extern const int8_t csr_data[];
+extern const int32_t csr_indices[];
+extern const int32_t csr_ptr[];
+
 #endif
-#endif /* APP_SCENARIO_ALLON_SENSOR_TFLM_PERSON_DETECT_MODEL_DATA_H_ */

@@ -48,7 +48,6 @@
 #define DEAULT_XHSUTDOWN_PIN    AON_GPIO2 
 #endif
 
-
 #ifdef ALLON_JPEG_ENCODE
 #include "allon_jpeg_encode.h"
 
@@ -60,7 +59,6 @@ int main(void)
 	return 0;
 }
 #endif
-
 
 #ifdef ALLON_SENSOR_TFLM
 #include "allon_sensor_tflm.h"
@@ -78,7 +76,7 @@ int main(void)
 #ifdef ALLON_SENSOR_TFLM_FATFS
 #include "allon_sensor_tflm_fatfs.h"
 
-/** main entry */
+/** main entry */git@github.com:vic900511/Seeed_Grove_Vision_AI_Module_V2.git
 int main(void)
 {
 	board_init();
@@ -128,7 +126,7 @@ int main(void)
 
 
 #ifdef FATFS_TEST
-#include "fatfs_test.h"
+#include "fatfs_test.h"git@github.com:vic900511/Seeed_Grove_Vision_AI_Module_V2.git
 
 /** main entry */
 int main(void)
