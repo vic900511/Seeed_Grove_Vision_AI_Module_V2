@@ -284,7 +284,7 @@ int app_main(void) {
     print_output(output, "Fourrows consecutive result:\n");
     */
 
-    /* GNN FC & FIR 
+    /* GNN FC & FIR */
     static int8_t input[RHS_ROW * RHS_COL] __attribute__((section(".arr"), aligned(4))) = {0};
     static int8_t input_T[RHS_COL * RHS_ROW] __attribute__((section(".arr"), aligned(4))) = {0};
     static int8_t output[LHS_ROW * RHS_COL] __attribute__((section(".arr"), aligned(4))) = {0};
@@ -297,20 +297,19 @@ int app_main(void) {
         }
     }
 	
-    // BMM_FC_test(adj_mx, input_T, output); // 12666343
+    BMM_FC_test(adj_mx, input_T, output); // 12666343
     // print_output(output, "FC result:\n"); 
 
-    // memset(output, 0, sizeof(output));
-    // BMM_Csr_test_lr(csr_data, csr_indices, csr_ptr, input, output); // 2219474
+    memset(output, 0, sizeof(output));
+    BMM_Csr_test_lr(csr_data, csr_indices, csr_ptr, input, output); // 2219474
     // print_output(output, "Csr lr result:\n");
 
-    // memset(output, 0, sizeof(output));
+    memset(output, 0, sizeof(output));
     BMM_Fourrows_test_tiling(nz_val, col_idx, start_idx, input, output); // 3110158
     // print_output(output, "Fourrows Tiling result:\n");
 
     memset(output, 0, sizeof(output));
     BMM_Fourrows_test_consec(nz_val, col_idx, start_idx, input, output); // 1889878
     // print_output(output, "Fourrows consecutive result:\n");
-	*/
-    return 0;
+	return 0;
 }
