@@ -78,24 +78,51 @@ def reordering_by_sim(adj_mat, simfunc='Jaccard'):
 
     return new_adj_mat, mapping_list
 
-def rosko_packing(adj_mat):
+def rosko_packing(adj_mat, path):
     M, K = adj_mat.shape
-    A_p, loc_m = [], []
-    col_ind, nnz = [], []
+    A_p = ''
+    loc_m = ''
+    col_ind = ''
+    nnz = ''
 
     for k in range(K):
         cols = 0
         for m in range(M):
             if adj_mat[m][k] != 0:
-                A_p.append(adj_mat[m][k])
-                loc_m.append(m)
+                A_p += str(adj_mat[m][k]) + ', '
+                loc_m += str(m) + ', '
                 cols += 1
         if cols > 0:
-            col_ind.append(k)
-            nnz.append(cols)
+            col_ind += str(k) + ', '
+            nnz += str(cols) + ', '
 
-    nnz.append(0)
-    return np.array(A_p), np.array(loc_m), np.array(col_ind), np.array(nnz)
+    nnz += '0'
+
+    if not os.path.exists('{}/Rosko'.format(path)):
+        try:
+            os.makedirs('{}/Rosko'.format(path))
+        except Exception as e:
+            print(f"創建資料夾時發生錯誤: {e}")
+    
+    A_p_path = '{}/Rosko/A_p.txt'.format(path)
+    f = open(A_p_path, "w+")
+    f.write(A_p)
+    f.close()
+
+    loc_m_path = '{}/Rosko/loc_m.txt'.format(path)
+    f = open(loc_m_path, "w+")
+    f.write(loc_m)
+    f.close()
+
+    col_ind_path = '{}/Rosko/col_ind.txt'.format(path)
+    f = open(col_ind_path, "w+")
+    f.write(col_ind)
+    f.close()
+
+    nnz_path = '{}/Rosko/nnz.txt'.format(path)
+    f = open(nnz_path, "w+")
+    f.write(nnz)
+    f.close()
 
 def fourrows_packing(matrix, path):
     mapping = {(1, 1, 1, 1): [], (1, 1, 1, 0): [], (1, 1, 0, 1): [], (1, 0, 1, 1): [], (0, 1, 1, 1): [], (1, 1, 0, 0): [], (1, 0, 1, 0): [], (1, 0, 0, 1): [], (0, 1, 1, 0): [], (0, 1, 0, 1): [], (0, 0, 1, 1): [], (1, 0, 0, 0): [], (0, 1, 0, 0): [], (0, 0, 1, 0): [], (0, 0, 0, 1): []}
@@ -136,6 +163,12 @@ def fourrows_packing(matrix, path):
         nzv += nz_val + '\n'
         col += col_idx + '\n'
         start += start_idx + '\n'
+
+    if not os.path.exists('{}/fourrows'.format(path)):
+        try:
+            os.makedirs('{}/fourrows'.format(path))
+        except Exception as e:
+            print(f"創建資料夾時發生錯誤: {e}")
 
     data_path = '{}/fourrows/nz_val.txt'.format(path)
     f = open(data_path, "w+")
@@ -180,6 +213,12 @@ def csr_packing(matrix, path):
     # f = open(adj_path, "w+")
     # f.write(s)
     # f.close()
+
+    if not os.path.exists('{}/csr'.format(path)):
+        try:
+            os.makedirs('{}/csr'.format(path))
+        except Exception as e:
+            print(f"創建資料夾時發生錯誤: {e}")
 
     csr_idx_path = '{}/csr/csr_idx_idx.txt'.format(path)
     f = open(csr_idx_path, "w+")
@@ -263,18 +302,23 @@ def gen_random_input(row, col, path):
 
 if __name__ == '__main__':
     weight = []
-    with open('./adj_mx.txt', 'r', encoding='utf-8') as f:
+    path = '../adj_data/profile'
+    LHS_H = 12
+    LHS_W = 9
+
+    with open('{}/adj_mx.txt'.format(path), 'r', encoding='utf-8') as f:
         for line in f:
             parts = [x.strip() for x in line.strip().split(',') if x.strip()]
             ints = [int(x) for x in parts]
             weight.extend(ints)
-
-    matrix = np.array(weight).reshape(256, -1)
+    print(len(weight))
+    matrix = np.array(weight).reshape(LHS_H, LHS_W)
     
     print("current sparsity: ", end='')
     print(1 - np.count_nonzero(matrix) / (matrix.shape[0] * matrix.shape[1]))
     print("shape: ", matrix.shape)
 
-    fourrows_packing(matrix, ".")
-    csr_packing(matrix, ".")
-    # gen_random_input(325, 128, path)
+    # fourrows_packing(matrix, path)
+    # csr_packing(matrix, path)
+    rosko_packing(matrix, path)
+    # gen_random_input(148, 100, path)
