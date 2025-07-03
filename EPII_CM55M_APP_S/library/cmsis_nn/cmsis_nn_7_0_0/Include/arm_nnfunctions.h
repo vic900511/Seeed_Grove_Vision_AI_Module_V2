@@ -1665,8 +1665,21 @@ arm_cmsis_nn_status arm_csr_s8_lr(const cmsis_nn_context *ctx,
                                   const cmsis_nn_dims *output_dims,
                                   int8_t *output);
 
+arm_cmsis_nn_status arm_rosko(const cmsis_nn_context *ctx,
+                              const cmsis_nn_fc_params *fc_params,
+                              const cmsis_nn_per_tensor_quant_params *quant_params,
+                              const cmsis_nn_dims *input_dims,
+                              const int8_t *A_p,
+                              const int32_t *loc_m,
+                              const int32_t *col_idx_rosko,
+                              const int32_t *nnz,
+                              const cmsis_nn_dims *filter_dims, 
+                              const int8_t *kernel,
+                              const cmsis_nn_dims *output_dims,
+                              int8_t *output);
+
 arm_cmsis_nn_status arm_fourrows_s8_consecutive(const cmsis_nn_context *ctx,
-                                         const cmsis_nn_fc_params *fc_params,
+                                         const cmsis_nn_fc_params *fc_paarm_fourrowsrams,
                                          const cmsis_nn_per_tensor_quant_params *quant_params,
                                          const cmsis_nn_dims *input_dims,
                                          const int8_t *nz_val,

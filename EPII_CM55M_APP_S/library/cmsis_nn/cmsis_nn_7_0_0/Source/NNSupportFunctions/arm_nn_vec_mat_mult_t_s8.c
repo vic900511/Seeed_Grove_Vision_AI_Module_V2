@@ -74,7 +74,6 @@ void printBinary(unsigned long long value, int bytes)
     void printInt8x16(const int8x16_t vec) {
         int8_t tmp[16];
         vstrbq_s8(tmp, vec);
-
         for (int i = 0; i < 16; i++) {
             printf("%d ", tmp[i]);  
         }
@@ -811,16 +810,14 @@ arm_cmsis_nn_status arm_nn_lr_csr_s8_for_bmm(const int8_t *data_arr,
             const int8x16_t ker_3 = vldrbq_z_s8(rhs_vec3, p);
             rhs_vec3 += 16;
 
-            int8x16_t product0 = vmulq_s8(ker_0, lhs_factor0);
-            int8x16_t product1 = vmulq_s8(ker_1, lhs_factor1);
-            int8x16_t product2 = vmulq_s8(ker_2, lhs_factor2);
-            int8x16_t product3 = vmulq_s8(ker_3, lhs_factor3);
-            
             const int8x16_t tmp = vldrbq_z_s8(dst_tmp, p);
-
+            int8x16_t product0 = vmulq_s8(ker_0, lhs_factor0);
             int8x16_t acc0 = vaddq_s8(tmp, product0);
+            int8x16_t product1 = vmulq_s8(ker_1, lhs_factor1);
             int8x16_t acc1 = vaddq_s8(acc0, product1);
+            int8x16_t product2 = vmulq_s8(ker_2, lhs_factor2);
             int8x16_t acc2 = vaddq_s8(acc1, product2);
+            int8x16_t product3 = vmulq_s8(ker_3, lhs_factor3);
             int8x16_t acc3 = vaddq_s8(acc2, product3);
             
             vstrbq_p_s8(dst_tmp, acc3, p);
@@ -863,73 +860,52 @@ arm_cmsis_nn_status arm_nn_fourrows_s8_for_bmm(const int8_t lhs_val,
                                                const int32_t rhs_cols)
 {
 #if defined(ARM_MATH_MVEI)
-    // const int32_t col_loop_cnt = (rhs_cols + 15) / 16;
-    // const int8x16_t lhs_factor = vdupq_n_s8(lhs_val);
-    // uint32_t col_cnt = (uint32_t)rhs_cols;
-    
-    // for (int32_t i = 0; i < col_loop_cnt; i++) {
-    //     mve_pred16_t p = vctp8q(col_cnt);
-    //     col_cnt -= 16;
-    //     const int8x16_t ker_0 = vldrbq_z_s8(rhs_vec, p);
-    //     int8x16_t product = vmulq_s8(ker_0, lhs_factor);
-    //     const int8x16_t tmp = vldrbq_z_s8(dst, p);
-    //     int8x16_t acc = vaddq_s8(tmp, product);
-    //     vstrbq_p_s8(dst, acc, p);
-
-    //     dst += 16;
-    //     rhs_vec += 16;
-    // }
     const int32_t col_loop_cnt = rhs_cols / 64;
-    const int8x16_t lhs_factor = vdupq_n_s8(lhs_val);
-    
+
     for (int32_t i = 0; i < col_loop_cnt; i++) {
-        const int8x16_t ker_0 = vldrbq_s8(rhs_vec);
+        const int8x16_t ker_0 = vld1q_s8(rhs_vec);
         rhs_vec += 16;
-        const int8x16_t ker_1 = vldrbq_s8(rhs_vec);
+        const int8x16_t ker_1 = vld1q_s8(rhs_vec);
         rhs_vec += 16;
-        const int8x16_t ker_2 = vldrbq_s8(rhs_vec);
-        rhs_vec += 16;        
-        const int8x16_t ker_3 = vldrbq_s8(rhs_vec);
+        const int8x16_t ker_2 = vld1q_s8(rhs_vec);
         rhs_vec += 16;
-
-        int8x16_t product0 = vmulq_s8(ker_0, lhs_factor);
-        int8x16_t product1 = vmulq_s8(ker_1, lhs_factor);
-        int8x16_t product2 = vmulq_s8(ker_2, lhs_factor);
-        int8x16_t product3 = vmulq_s8(ker_3, lhs_factor);
-
-        const int8x16_t tmp0 = vldrbq_s8(dst);
-        int8x16_t acc0 = vaddq_s8(tmp0, product0);
-        vstrbq_s8(dst, acc0);
+        const int8x16_t ker_3 = vld1q_s8(rhs_vec);
+        rhs_vec += 16;
+        
+        int8x16_t tmp = vld1q_s8(dst);
+        tmp = vmlaq_n_s8(tmp, ker_0, lhs_val);
+        vst1q_s8(dst, tmp);
         dst += 16;
 
-        const int8x16_t tmp1 = vldrbq_s8(dst);
-        int8x16_t acc1 = vaddq_s8(tmp1, product1);
-        vstrbq_s8(dst, acc1);
-        dst += 16;
-       
-        const int8x16_t tmp2 = vldrbq_s8(dst);
-        int8x16_t acc2 = vaddq_s8(tmp2, product2);
-        vstrbq_s8(dst, acc2);
+        tmp = vld1q_s8(dst);
+        tmp = vmlaq_n_s8(tmp, ker_1, lhs_val);
+        vst1q_s8(dst, tmp);
         dst += 16;
 
-        const int8x16_t tmp3 = vldrbq_s8(dst);
-        int8x16_t acc3 = vaddq_s8(tmp3, product3);
-        vstrbq_s8(dst, acc3);
+        tmp = vld1q_s8(dst);
+        tmp = vmlaq_n_s8(tmp, ker_2, lhs_val);
+        vst1q_s8(dst, tmp);
+        dst += 16;
+
+        tmp = vld1q_s8(dst);
+        tmp = vmlaq_n_s8(tmp, ker_3, lhs_val);
+        vst1q_s8(dst, tmp);
         dst += 16;
     }
+
     uint32_t col_cnt = (uint32_t)rhs_cols % 64;
     for (int32_t i = 64 * col_loop_cnt; i < rhs_cols; i += 16) {
         mve_pred16_t p = vctp8q(col_cnt);
         col_cnt -= 16;
-        const int8x16_t ker_0 = vldrbq_z_s8(rhs_vec, p);
-        int8x16_t product = vmulq_s8(ker_0, lhs_factor);
-        const int8x16_t tmp = vldrbq_z_s8(dst, p);
-        int8x16_t acc = vaddq_s8(tmp, product);
-        vstrbq_p_s8(dst, acc, p);
 
-        dst += 16;
+        const int8x16_t ker = vldrbq_z_s8(rhs_vec, p);
+        int8x16_t tmp = vldrbq_z_s8(dst, p);
+        tmp = vmlaq_n_s8(tmp, ker, lhs_val);
+        vstrbq_p_s8(dst, tmp, p);
         rhs_vec += 16;
+        dst += 16;
     }
+
 #endif
     return ARM_CMSIS_NN_SUCCESS;
 }

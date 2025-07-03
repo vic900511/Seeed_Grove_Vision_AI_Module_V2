@@ -136,6 +136,31 @@ void BMM_Csr_test_lr(const int8_t *csr_data, const int32_t *csr_indices, const i
 	return;
 }
 
+void BMM_Rosko(const int8_t *A_p, const int32_t *loc_m, const int32_t *col_idx_rosko, const int32_t *nnz, int8_t *input, int8_t *output) {
+	cmsis_nn_context *ctx = NULL;
+    cmsis_nn_fc_params fc_params;
+    cmsis_nn_per_tensor_quant_params quant_params;
+    cmsis_nn_dims input_dims, filter_dims, output_dims;
+    const int32_t *bias = NULL;
+    const cmsis_nn_dims *bias_dims = NULL;
+    initialize_BMM_metadata(&fc_params, &quant_params, &input_dims, &filter_dims, &output_dims);
+    DWT_CYCCNT_START();
+    DWT_CYCCNT_RESET();
+
+    arm_rosko(
+        ctx, &fc_params, &quant_params, &input_dims,
+        A_p, loc_m, col_idx_rosko, nnz,
+        &filter_dims, input,
+        &output_dims, output
+    );
+
+    uint32_t cyccnt = DWT_CYCCNT_GET();
+    DWT_CYCCNT_STOP();
+    printf("bmm(Rosko) Cycle Count: %ld\n", cyccnt);
+	return;
+}
+
+
 void BMM_Fourrows_test_consec(const int8_t *nz_val, const int32_t *col_idx, const int32_t *start_idx, int8_t *input, int8_t *output) {
 	cmsis_nn_context *ctx = NULL;
     cmsis_nn_fc_params fc_params;
@@ -229,7 +254,6 @@ void print_output(int8_t *output, char *msg) {
  */
 int app_main(void) {
     DWT_CYCCNT_EN();
-    /* im2col
     static int8_t input[RHS_ROW * RHS_COL] __attribute__((section(".arr"), aligned(4))) = {0};
 	static int8_t input_T[RHS_COL * RHS_ROW] __attribute__((section(".arr"), aligned(4))) = {0};
     static int8_t output[LHS_ROW * RHS_COL] __attribute__((section(".arr"), aligned(4))) = {0};
@@ -269,47 +293,49 @@ int app_main(void) {
     }
 	
     BMM_FC_test(adj_mx, input_T, output); 
-    print_output(output, "FC result:\n");
+    // print_output(output, "FC result:\n");
 
     memset(output, 0, sizeof(output));
     BMM_Csr_test_lr(csr_data, csr_indices, csr_ptr, input, output); 
-    print_output(output, "Csr lr result:\n");
-
-    memset(output, 0, sizeof(output));
-    BMM_Fourrows_test_tiling(nz_val, col_idx, start_idx, input, output);
-    print_output(output, "Fourrows Tiling result:\n");
-
-    memset(output, 0, sizeof(output));
-    BMM_Fourrows_test_consec(nz_val, col_idx, start_idx, input, output);
-    print_output(output, "Fourrows consecutive result:\n");
-    */
-
-    /* GNN FC & FIR */
-    static int8_t input[RHS_ROW * RHS_COL] __attribute__((section(".arr"), aligned(4))) = {0};
-    static int8_t input_T[RHS_COL * RHS_ROW] __attribute__((section(".arr"), aligned(4))) = {0};
-    static int8_t output[LHS_ROW * RHS_COL] __attribute__((section(".arr"), aligned(4))) = {0};
-
-    memcpy(input, Input, RHS_ROW * RHS_COL);
-    int idx = 0;
-    for(int i = 0; i < RHS_COL; i++) {
-        for(int j = 0; j < RHS_ROW; j++) {
-            input_T[idx++] = input[i + j * RHS_COL];
-        }
-    }
-	
-    BMM_FC_test(adj_mx, input_T, output); // 12666343
-    // print_output(output, "FC result:\n"); 
-
-    memset(output, 0, sizeof(output));
-    BMM_Csr_test_lr(csr_data, csr_indices, csr_ptr, input, output); // 2219474
     // print_output(output, "Csr lr result:\n");
 
-    memset(output, 0, sizeof(output));
-    BMM_Fourrows_test_tiling(nz_val, col_idx, start_idx, input, output); // 3110158
+    // memset(output, 0, sizeof(output));
+    // BMM_Fourrows_test_tiling(nz_val, col_idx, start_idx, input, output);
     // print_output(output, "Fourrows Tiling result:\n");
 
-    memset(output, 0, sizeof(output));
-    BMM_Fourrows_test_consec(nz_val, col_idx, start_idx, input, output); // 1889878
+    memset(output, 0, sizeof(output)); 
+    BMM_Fourrows_test_consec(nz_val, col_idx, start_idx, input, output);
+    // print_output(output, "Fourrows consecutive result:\n"); 
+    
+    memset(output, 0, sizeof(output)); 
+    BMM_Rosko(A_p, loc_m, col_idx_rosko, nnz, input, output);
+    // print_output(output, "Rosko result:\n"); 
+
+    /* GNN FC & FIR */
+    // static int8_t input[RHS_ROW * RHS_COL] __attribute__((section(".arr"), aligned(4))) = {0};
+    // static int8_t input_T[RHS_COL * RHS_ROW] __attribute__((section(".arr"), aligned(4))) = {0};
+    // static int8_t output[LHS_ROW * RHS_COL] __attribute__((section(".arr"), aligned(4))) = {0};
+
+    // memcpy(input, Input, RHS_ROW * RHS_COL);
+    // int idx = 0;
+    // for(int i = 0; i < RHS_COL; i++) {
+    //     for(int j = 0; j < RHS_ROW; j++) {
+    //         input_T[idx++] = input[i + j * RHS_COL];
+    //     }
+    // }
+    // BMM_FC_test(adj_mx, input_T, output); 
+    // print_output(output, "FC result:\n"); 
+
+    // memset(output, 0, sizeof(output));
+    // BMM_Csr_test_lr(csr_data, csr_indices, csr_ptr, input, output); 
+    // print_output(output, "Csr lr result:\n");
+
+    // memset(output, 0, sizeof(output));
+    // BMM_Fourrows_test_tiling(nz_val, col_idx, start_idx, input, output); 
+    // print_output(output, "Fourrows Tiling result:\n");
+
+    // memset(output, 0, sizeof(output));
+    // BMM_Fourrows_test_consec(nz_val, col_idx, start_idx, input, output); 
     // print_output(output, "Fourrows consecutive result:\n");
 	return 0;
 }

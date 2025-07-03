@@ -123,6 +123,61 @@ arm_cmsis_nn_status arm_csr_s8_lr(const cmsis_nn_context *ctx,
     return (ARM_CMSIS_NN_SUCCESS);
 }
 
+arm_cmsis_nn_status arm_rosko(const cmsis_nn_context *ctx,
+                              const cmsis_nn_fc_params *fc_params,
+                              const cmsis_nn_per_tensor_quant_params *quant_params,
+                              const cmsis_nn_dims *input_dims,
+                              const int8_t *A_p,
+                              const int32_t *loc_m,
+                              const int32_t *col_idx_rosko,
+                              const int32_t *nnz,
+                              const cmsis_nn_dims *filter_dims, 
+                              const int8_t *kernel,
+                              const cmsis_nn_dims *output_dims,
+                              int8_t *output) 
+{
+    int32_t lhs_cols = input_dims->c;
+    int32_t rhs_cols = filter_dims->c;
+    for(int k = 0; k < lhs_cols; k++) {
+        if(nnz[k] == 0) {
+            break;
+        }
+        const int8_t *rhs_vec = kernel + rhs_cols * col_idx_rosko[k];
+        for(int m = 0; m < nnz[k]; m++) {
+            const int8_t lhs_val = *A_p;
+            A_p++;
+            int8_t *output_start = output + *(loc_m) * rhs_cols;
+            loc_m++;
+            arm_nn_fourrows_s8_for_bmm(lhs_val, rhs_vec, output_start, rhs_cols);
+        }
+    }
+    return (ARM_CMSIS_NN_SUCCESS);
+}
+
+typedef struct { 
+    uint8_t num_non_zeros; 
+    uint8_t non_zeros[4]; 
+} PatternInfo;
+
+static const PatternInfo pattern_lookup_table[15] = {
+    {4, {0, 1, 2, 3}}, 
+    {3, {0, 1, 2}}, 
+    {3, {0, 1, 3}}, 
+    {3, {0, 2, 3}}, 
+    {3, {1, 2, 3}}, 
+    {2, {0, 1}}, 
+    {2, {0, 2}}, 
+    {2, {0, 3}}, 
+    {2, {1, 2}}, 
+    {2, {1, 3}}, 
+    {2, {2, 3}}, 
+    {1, {0}}, 
+    {1, {1}},
+    {1, {2}},
+    {1, {3}}
+};
+
+
 arm_cmsis_nn_status arm_fourrows_s8_consecutive(const cmsis_nn_context *ctx,
                                                 const cmsis_nn_fc_params *fc_params,
                                                 const cmsis_nn_per_tensor_quant_params *quant_params,
@@ -136,133 +191,18 @@ arm_cmsis_nn_status arm_fourrows_s8_consecutive(const cmsis_nn_context *ctx,
                                                 int8_t *output) 
 {
     int nnz_num = 0;
-    int end = input_dims->n % 4 ? input_dims->n / 4 + 1 : input_dims->n / 4;
+    int end = (input_dims->n + 3) / 4;
+    int32_t rhs_cols = filter_dims->c;
     for(int i = 0; i < end; i++) {
-        int pattern_nnz_num;
-        for(int pattern = 0; pattern < 15; pattern++) {
-            if(pattern == 0) {
-                pattern_nnz_num = 4;
-            }
-            else if(pattern >= 1 && pattern <= 4) {
-                pattern_nnz_num = 3;
-            }
-            else if(pattern >= 5 && pattern <= 10) {
-                pattern_nnz_num = 2;
-            }
-            else {
-                pattern_nnz_num = 1;
-            }
-            // method 1: 1 lhsval * rhs vec (有 locality)
-            while(nnz_num != start_idx[16 * i + pattern + 1]) {
-                const int8_t *rhs_vec = kernel + filter_dims->c * (*col_idx);
+        for(uint8_t pattern_id = 0; pattern_id < 15; pattern_id++) {
+            const PatternInfo *pattern_info = &pattern_lookup_table[pattern_id];
+            const uint8_t num_non_zero = pattern_info->num_non_zeros;
+            for(; nnz_num < start_idx[16 * i + pattern_id + 1]; nnz_num += num_non_zero) {
+                const int8_t *rhs_vec = kernel + *(col_idx) * rhs_cols;
                 col_idx++;
-                int8_t *output_start = output;
-                nnz_num += pattern_nnz_num;
-
-                if(pattern == 0) {
-                    for(int j = 0; j < 4; j++) {
-                        arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
-                        output_start += filter_dims->c;
-                        nz_val++;
-                    }
-                }
-                else if(pattern == 1) {
-                    for(int j = 0; j < 3; j++) {
-                        arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
-                        output_start += filter_dims->c;
-                        nz_val++;
-                    }
-                }
-                else if(pattern == 2) {
-                    for(int j = 0; j < 2; j++) {
-                        arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
-                        output_start += filter_dims->c;
-                        nz_val++;
-                    }
-                    output_start += filter_dims->c;
-                    arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
-                    nz_val++;
-                }
-                else if(pattern == 3) {
-                    arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
-                    output_start += 2 * filter_dims->c;
-                    nz_val++;
-                    for(int j = 0; j < 2; j++) {
-                        arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
-                        output_start += filter_dims->c;
-                        nz_val++;
-                    }
-                }
-                else if(pattern == 4) {
-                    output_start += filter_dims->c;
-                    for(int j = 0; j < 3; j++) {
-                        arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
-                        output_start += filter_dims->c;
-                        nz_val++;
-                    }
-                }
-                else if(pattern == 5) {
-                    for(int j = 0; j < 2; j++) {
-                        arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
-                        output_start += filter_dims->c;
-                        nz_val++;
-                    }
-                }
-                else if(pattern == 6) {
-                    arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
-                    output_start += 2 * filter_dims->c;
-                    nz_val++;
-                    arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
-                    nz_val++;
-                }
-                else if(pattern == 7) {
-                    arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
-                    output_start += 3 * filter_dims->c;
-                    nz_val++;
-                    arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
-                    nz_val++;
-                }
-                else if(pattern == 8) {
-                    output_start += filter_dims->c;   
-                    for(int j = 0; j < 2; j++) {
-                        arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
-                        output_start += filter_dims->c;
-                        nz_val++;
-                    }
-                }
-                else if(pattern == 9) {
-                    output_start += filter_dims->c;
-                    arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
-                    output_start += 2 * filter_dims->c;
-                    nz_val++;
-                    arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
-                    nz_val++;
-                }
-                else if(pattern == 10) {
-                    output_start += 2 * filter_dims->c;
-                    for(int j = 0; j < 2; j++) {
-                        arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
-                        output_start += filter_dims->c;
-                        nz_val++;
-                    }
-                }
-                else if(pattern == 11) {
-                    arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
-                    nz_val++;
-                }
-                else if(pattern == 12) {
-                    output_start += filter_dims->c;
-                    arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
-                    nz_val++;
-                }
-                else if(pattern == 13) {
-                    output_start += 2 * filter_dims->c;
-                    arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
-                    nz_val++;
-                }
-                else if(pattern == 14) {
-                    output_start += 3 * filter_dims->c;
-                    arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
+                for(uint8_t n = 0; n < num_non_zero; n++) {
+                    int8_t *output_start = output + pattern_info->non_zeros[n] * rhs_cols;
+                    arm_nn_fourrows_s8_for_bmm(*(nz_val), rhs_vec, output_start, rhs_cols);
                     nz_val++;
                 }
             }
@@ -272,6 +212,156 @@ arm_cmsis_nn_status arm_fourrows_s8_consecutive(const cmsis_nn_context *ctx,
 
     return (ARM_CMSIS_NN_SUCCESS);
 }
+
+// arm_cmsis_nn_status arm_fourrows_s8_consecutive(const cmsis_nn_context *ctx,
+//                                                 const cmsis_nn_fc_params *fc_params,
+//                                                 const cmsis_nn_per_tensor_quant_params *quant_params,
+//                                                 const cmsis_nn_dims *input_dims,
+//                                                 const int8_t *nz_val,
+//                                                 const int32_t *col_idx,
+//                                                 const int32_t *start_idx,
+//                                                 const cmsis_nn_dims *filter_dims, 
+//                                                 const int8_t *kernel,
+//                                                 const cmsis_nn_dims *output_dims,
+//                                                 int8_t *output) 
+// {
+//     int nnz_num = 0;
+//     int end = (input_dims->n + 3) / 4;
+//     for(int i = 0; i < end; i++) {
+//         int pattern_nnz_num;
+//         for(int pattern = 0; pattern < 15; pattern++) {
+//             if(pattern == 0) {
+//                 pattern_nnz_num = 4;
+//             }
+//             else if(pattern >= 1 && pattern <= 4) {
+//                 pattern_nnz_num = 3;
+//             }
+//             else if(pattern >= 5 && pattern <= 10) {
+//                 pattern_nnz_num = 2;
+//             }
+//             else {
+//                 pattern_nnz_num = 1;
+//             }
+//             // method 1: 1 lhsval * rhs vec (有 locality)
+//             while(nnz_num != start_idx[16 * i + pattern + 1]) {
+//                 const int8_t *rhs_vec = kernel + filter_dims->c * (*col_idx);
+//                 col_idx++;
+//                 int8_t *output_start = output;
+//                 nnz_num += pattern_nnz_num;
+
+//                 if(pattern == 0) {
+//                     for(int j = 0; j < 4; j++) {
+//                         arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
+//                         output_start += filter_dims->c;
+//                         nz_val++;
+//                     }
+//                 }
+//                 else if(pattern == 1) {
+//                     for(int j = 0; j < 3; j++) {
+//                         arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
+//                         output_start += filter_dims->c;
+//                         nz_val++;
+//                     }
+//                 }
+//                 else if(pattern == 2) {
+//                     for(int j = 0; j < 2; j++) {
+//                         arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
+//                         output_start += filter_dims->c;
+//                         nz_val++;
+//                     }
+//                     output_start += filter_dims->c;
+//                     arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
+//                     nz_val++;
+//                 }
+//                 else if(pattern == 3) {
+//                     arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
+//                     output_start += 2 * filter_dims->c;
+//                     nz_val++;
+//                     for(int j = 0; j < 2; j++) {
+//                         arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
+//                         output_start += filter_dims->c;
+//                         nz_val++;
+//                     }
+//                 }
+//                 else if(pattern == 4) {
+//                     output_start += filter_dims->c;
+//                     for(int j = 0; j < 3; j++) {
+//                         arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
+//                         output_start += filter_dims->c;
+//                         nz_val++;
+//                     }
+//                 }
+//                 else if(pattern == 5) {
+//                     for(int j = 0; j < 2; j++) {
+//                         arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
+//                         output_start += filter_dims->c;
+//                         nz_val++;
+//                     }
+//                 }
+//                 else if(pattern == 6) {
+//                     arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
+//                     output_start += 2 * filter_dims->c;
+//                     nz_val++;
+//                     arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
+//                     nz_val++;
+//                 }
+//                 else if(pattern == 7) {
+//                     arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
+//                     output_start += 3 * filter_dims->c;
+//                     nz_val++;
+//                     arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
+//                     nz_val++;
+//                 }
+//                 else if(pattern == 8) {
+//                     output_start += filter_dims->c;   
+//                     for(int j = 0; j < 2; j++) {
+//                         arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
+//                         output_start += filter_dims->c;
+//                         nz_val++;
+//                     }
+//                 }
+//                 else if(pattern == 9) {
+//                     output_start += filter_dims->c;
+//                     arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
+//                     output_start += 2 * filter_dims->c;
+//                     nz_val++;
+//                     arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
+//                     nz_val++;
+//                 }
+//                 else if(pattern == 10) {
+//                     output_start += 2 * filter_dims->c;
+//                     for(int j = 0; j < 2; j++) {
+//                         arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
+//                         output_start += filter_dims->c;
+//                         nz_val++;
+//                     }
+//                 }
+//                 else if(pattern == 11) {
+//                     arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
+//                     nz_val++;
+//                 }
+//                 else if(pattern == 12) {
+//                     output_start += filter_dims->c;
+//                     arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
+//                     nz_val++;
+//                 }
+//                 else if(pattern == 13) {
+//                     output_start += 2 * filter_dims->c;
+//                     arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
+//                     nz_val++;
+//                 }
+//                 else if(pattern == 14) {
+//                     output_start += 3 * filter_dims->c;
+//                     arm_nn_fourrows_s8_for_bmm(*nz_val, rhs_vec, output_start, filter_dims->c);
+//                     nz_val++;
+//                 }
+//             }
+//         }
+//         output += 4 * filter_dims->c;
+//     }
+
+//     return (ARM_CMSIS_NN_SUCCESS);
+// }
 
 arm_cmsis_nn_status arm_fourrows_s8_tiling(const cmsis_nn_context *ctx,
                                            const cmsis_nn_fc_params *fc_params,
