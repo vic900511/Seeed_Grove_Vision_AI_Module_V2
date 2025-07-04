@@ -299,8 +299,8 @@ int app_main(void) {
     BMM_Csr_test_lr(csr_data, csr_indices, csr_ptr, input, output); 
     // print_output(output, "Csr lr result:\n");
 
-    // memset(output, 0, sizeof(output));
-    // BMM_Fourrows_test_tiling(nz_val, col_idx, start_idx, input, output);
+    memset(output, 0, sizeof(output));
+    BMM_Fourrows_test_tiling(nz_val, col_idx, start_idx, input, output);
     // print_output(output, "Fourrows Tiling result:\n");
 
     memset(output, 0, sizeof(output)); 
@@ -337,5 +337,9 @@ int app_main(void) {
     // memset(output, 0, sizeof(output));
     // BMM_Fourrows_test_consec(nz_val, col_idx, start_idx, input, output); 
     // print_output(output, "Fourrows consecutive result:\n");
+
+    // memset(output, 0, sizeof(output)); 
+    // BMM_Rosko(A_p, loc_m, col_idx_rosko, nnz, input, output);
+    // print_output(output, "Rosko result:\n"); 
 	return 0;
 }

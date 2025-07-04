@@ -38,4 +38,6 @@ we2_image_gen_local/Images*.txt
 *.map
 *.img
 
+## Metadata
+EPII_CM55M_APP_S/app/scenario_app/allon_sensor_tflm_cmsis_nn/adj_data/
 .vscode/
