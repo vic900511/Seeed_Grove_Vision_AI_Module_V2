@@ -3,10 +3,10 @@
 
 #include <stdint.h>
 
-#define LHS_ROW 12
-#define LHS_COL 9
-#define RHS_ROW 9
-#define RHS_COL 676
+#define LHS_ROW 100
+#define LHS_COL 700
+#define RHS_ROW 700
+#define RHS_COL 142
 
 extern const int input_h_start, input_h_end, input_w_start, input_w_end, input_c;
 extern const int filter_h, filter_w;

@@ -302,9 +302,9 @@ def gen_random_input(row, col, path):
 
 if __name__ == '__main__':
     weight = []
-    path = '../adj_data/profile'
-    LHS_H = 12
-    LHS_W = 9
+    path = '../adj_data/SpMM'
+    LHS_H = 49
+    LHS_W = 160
 
     with open('{}/adj_mx.txt'.format(path), 'r', encoding='utf-8') as f:
         for line in f:
@@ -318,7 +318,7 @@ if __name__ == '__main__':
     print(1 - np.count_nonzero(matrix) / (matrix.shape[0] * matrix.shape[1]))
     print("shape: ", matrix.shape)
 
-    # fourrows_packing(matrix, path)
-    # csr_packing(matrix, path)
+    fourrows_packing(matrix, path)
+    csr_packing(matrix, path)
     rosko_packing(matrix, path)
-    # gen_random_input(148, 100, path)
+    gen_random_input(160, 960, path)
