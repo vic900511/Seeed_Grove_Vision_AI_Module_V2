@@ -1,3 +1,15 @@
+# Pattern-SpMM: Optimizing Sparse Matrix Multiplication Kernels on Vectorized CPU
+## Environment Setup
+- [guide](https://hackmd.io/@cDv8VHDmRHu1gwPKF4hIsA/ByOotSq6yx)
+## Usage
+```
+cd ./EPII_CM55M_APP_S
+./fast_build.sh
+``` 
+- SpMM Implementation Details:
+```
+./EPII_CM55M_APP_S/library/cmsis_nn/cmsis_nn_7_0_0/Source/FullyConnectedFunctions/arm_fully_connected_s8.c
+``` 
 # Himax examples for Seeed Grove Vision AI Module V2
 This is a repository which step by step teaches you how to build your own examples and run on Seeed Grove Vision AI Module V2.
 Finally, teach you how to restore to the original factory settings and run [SenseCraft AI](https://wiki.seeedstudio.com/grove_vision_ai_v2_software_support/#-no-code-getting-started-with-sensecraft-ai-) from [Seeed Studio](https://wiki.seeedstudio.com/grove_vision_ai_v2/).
