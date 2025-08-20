@@ -13,6 +13,8 @@
 #include <stdlib.h>
 #include "WE2_device.h"
 
+// extern volatile uint32_t overflow_cnt;
+
 #if 0
 /* HardFault handler implementation that prints a message
    then exits the program early.
@@ -31,7 +33,7 @@ void HardFault_Handler(void) {
 	if (SAU->SFSR != 0) {
 		if (SAU->SFSR & SAU_SFSR_INVEP_Msk) {
 			/* Invalid Secure state entry point */
-			printf(
+			printf(    
 					"SAU->SFSR:INVEP fault: Invalid entry point to secure world.\r\n");
 		} else if (SAU->SFSR & SAU_SFSR_AUVIOL_Msk) {
 			/* AUVIOL: SAU violation  */
@@ -132,3 +134,8 @@ void SecureFault_Handler(void) {
 	}
 }
 
+// void DebugMon_Handler(void) {
+// 	if(PMU->OVSSET & (1 << 0)) {
+// 		overflow_cnt++;
+// 	}
+// }

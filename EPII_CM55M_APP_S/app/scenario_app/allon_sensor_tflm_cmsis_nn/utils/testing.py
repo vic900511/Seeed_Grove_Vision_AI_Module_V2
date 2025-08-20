@@ -25,3 +25,4 @@ output_tensor = tf.nn.conv2d(
 
 output_shape = output_tensor.shape
 
+print(output_shape)

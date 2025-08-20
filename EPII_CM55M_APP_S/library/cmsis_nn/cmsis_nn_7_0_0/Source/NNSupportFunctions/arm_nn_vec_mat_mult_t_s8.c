@@ -71,6 +71,7 @@ void printBinary(unsigned long long value, int bytes)
 
 
 #if defined(ARM_MATH_MVEI)
+
     void printInt8x16(const int8x16_t vec) {
         int8_t tmp[16];
         vstrbq_s8(tmp, vec);
@@ -854,6 +855,111 @@ arm_cmsis_nn_status arm_nn_lr_csr_s8_for_bmm(const int8_t *data_arr,
     return ARM_CMSIS_NN_SUCCESS;
 }
 
+arm_cmsis_nn_status arm_nn_dcsr_s8_for_bmm(const int8_t *data_arr, 
+                                        const int8_t *rhs,
+                                        const int16_t *group_buffer, 
+                                        const uint8_t *idx_buffer, 
+                                        const uint32_t row_len, 
+                                        const uint32_t num_groups, 
+                                        const int32_t rhs_cols,
+                                        int8_t *dst) 
+{
+#if defined(ARM_MATH_MVEI)
+    uint32_t offset = 0;
+    int cnt = 0;
+    const int32_t lhs_col_loop_cnt = row_len / 4;
+    for(int i = 0; i < lhs_col_loop_cnt; i++) {
+        if(cnt % 16 == 0) {
+            offset += *group_buffer;
+            group_buffer++;
+        }
+        const int8x16_t lhs_factor0 = vdupq_n_s8(*data_arr);
+        const int8_t *rhs_vec0 = rhs + (*idx_buffer + offset) * rhs_cols;
+        data_arr++;
+        idx_buffer++;
+    
+        const int8x16_t lhs_factor1 = vdupq_n_s8(*data_arr);
+        const int8_t *rhs_vec1 = rhs + (*idx_buffer + offset) * rhs_cols;
+        data_arr++;
+        idx_buffer++;
+
+        const int8x16_t lhs_factor2 = vdupq_n_s8(*data_arr);
+        const int8_t *rhs_vec2 = rhs + (*idx_buffer + offset) * rhs_cols;
+        data_arr++;
+        idx_buffer++;
+
+        const int8x16_t lhs_factor3 = vdupq_n_s8(*data_arr);
+        const int8_t *rhs_vec3 = rhs + (*idx_buffer + offset) * rhs_cols;
+        data_arr++;
+        idx_buffer++;
+        
+        const int32_t rhs_col_loop_cnt = (rhs_cols + 15) / 16;
+        uint32_t col_cnt = (uint32_t)rhs_cols;
+        int8_t *dst_tmp = dst;
+        for(int j = 0; j < rhs_col_loop_cnt; j++) {
+            mve_pred16_t p = vctp8q(col_cnt); 
+            col_cnt -= 16;
+
+            const int8x16_t ker_0 = vldrbq_z_s8(rhs_vec0, p);
+            rhs_vec0 += 16;
+            const int8x16_t ker_1 = vldrbq_z_s8(rhs_vec1, p);
+            rhs_vec1 += 16;
+            const int8x16_t ker_2 = vldrbq_z_s8(rhs_vec2, p);
+            rhs_vec2 += 16;
+            const int8x16_t ker_3 = vldrbq_z_s8(rhs_vec3, p);
+            rhs_vec3 += 16;
+
+            const int8x16_t tmp = vldrbq_z_s8(dst_tmp, p);
+            int8x16_t product0 = vmulq_s8(ker_0, lhs_factor0);
+            int8x16_t acc0 = vaddq_s8(tmp, product0);
+            int8x16_t product1 = vmulq_s8(ker_1, lhs_factor1);
+            int8x16_t acc1 = vaddq_s8(acc0, product1);
+            int8x16_t product2 = vmulq_s8(ker_2, lhs_factor2);
+            int8x16_t acc2 = vaddq_s8(acc1, product2);
+            int8x16_t product3 = vmulq_s8(ker_3, lhs_factor3);
+            int8x16_t acc3 = vaddq_s8(acc2, product3);
+            
+            vstrbq_p_s8(dst_tmp, acc3, p);
+            dst_tmp += 16;
+        }
+        cnt += 4;
+    }
+    const int lhs_loop_cnt = row_len % 4;
+    for(int i = 0; i < lhs_loop_cnt; i++) {
+        if(cnt % 16 == 0) {
+            offset += *group_buffer;
+            group_buffer++;
+        }
+        const int8x16_t lhs_factor = vdupq_n_s8(*data_arr);
+        const int8_t *rhs_vec = rhs + (*idx_buffer + offset) * rhs_cols;
+        data_arr++;
+        idx_buffer++;
+
+        const int32_t rhs_col_loop_cnt = (rhs_cols + 15) / 16;
+        uint32_t col_cnt = (uint32_t)rhs_cols;
+        int8_t *dst_tmp = dst;
+        for(int j = 0; j < rhs_col_loop_cnt; j++) {
+            mve_pred16_t p = vctp8q(col_cnt); 
+            col_cnt -= 16;
+
+            const int8x16_t ker = vldrbq_z_s8(rhs_vec, p);
+            rhs_vec += 16;
+            
+            int8x16_t product = vmulq_s8(ker, lhs_factor);
+            const int8x16_t tmp = vldrbq_z_s8(dst_tmp, p);
+            int8x16_t acc0 = vaddq_s8(tmp, product);
+            
+            vstrbq_p_s8(dst_tmp, acc0, p);
+            dst_tmp += 16;
+        }
+        cnt += 1;
+    }
+#endif
+    return ARM_CMSIS_NN_SUCCESS;
+}
+
+
+
 arm_cmsis_nn_status arm_nn_fourrows_s8_for_bmm(const int8_t lhs_val,
                                                const int8_t *rhs_vec, 
                                                int8_t *dst,
@@ -909,6 +1015,113 @@ arm_cmsis_nn_status arm_nn_fourrows_s8_for_bmm(const int8_t lhs_val,
 #endif
     return ARM_CMSIS_NN_SUCCESS;
 }
+
+#if defined(ARM_MATH_MVEI)
+static inline uint8x16_t base_index(const uint8_t slope)
+{
+    uint8x16_t slope_vec = vdupq_n_u8(slope);
+    uint8x16_t idx_base = vidupq_u8(0, 1);
+    /* uint8x16_t idx_base = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};*/
+    return vmulq_u8(idx_base, slope_vec);
+}
+
+static inline uint8x16_t bit_extend(uint8x16_t base_values, const uint8_t extension_map, const uint16_t *bitmasks, uint32_t *bitmasks_idx)
+{
+    for (size_t bitposition = 0; bitposition < EXTENSION_BITS; bitposition++)
+    {
+        // Is extension bit in map set for the current position?
+        if ((extension_map & (1 << bitposition)) != 0)
+        {
+            // Consume the next bitmap for extension
+            const mve_pred16_t pred = (mve_pred16_t) * (bitmasks + (*bitmasks_idx)++);
+            const uint8x16_t extension_mask = vdupq_n_u8(1 << (BASE_BITS + bitposition));
+            base_values = vorrq_m_u8(base_values, base_values, extension_mask, pred);
+        }
+    }
+    return base_values;
+}
+
+static inline uint8x16_t load_base_indices(const size_t group_idx, const uint8_t *base_indices, const bool use_upper_nibble)
+{
+    // Base indices for two consecutive groups are packed into 16 Byites
+    // Even groups occupy upper nibble, odd groups occupy lower nibble
+    // For index 0-15 of Group A (even) and Group B (odd):
+    // | A0B0 | A1B1 | A2B2 | ... | A15B15 |
+    uint8x16_t group_base_indices = vldrbq_u8(base_indices + (group_idx / 2) * SIMD_GROUP_SIZE);
+    if (use_upper_nibble == true)
+    {
+        group_base_indices = vshrq_n_u8(group_base_indices, 4);
+    }
+    else
+    {
+        const uint8x16_t mask = vdupq_n_u8(0x0f);
+        group_base_indices = vandq_u8(group_base_indices, mask);
+    }
+    return group_base_indices;
+}
+
+static inline uint8_t load_extension_map(const size_t group_idx, const uint8_t *bitmaps, const bool use_upper_nibble)
+{
+    // 4-Bit extension Bitmaps for two groups are packed in one byte.
+    // Even group occupies upper nibble, odd group occupies lower nibble.
+    // For Groups A-H:
+    // | AB | CD | EF | GH |
+    uint8_t extension_map = bitmaps[group_idx / 2];
+    if (use_upper_nibble == true)
+    {
+        extension_map = extension_map >> 4;
+    }
+    return extension_map;
+}
+#endif
+
+// Generate 8-Bit Group indices from 4-Bit base values and
+// Extension bitmaps
+arm_cmsis_nn_status sparse_extract_row_indices(
+    const compressed_sparsity *comp_sp,
+    const uint32_t row_elements,
+    const uint32_t row_groups,
+    const uint32_t slope,
+    uint32_t *bitmasks_idx,
+    uint32_t groups_idx,
+    uint8_t *indices_buffer)
+{
+#if defined(ARM_MATH_MVEI)
+    const uint8x16_t idx_base = base_index(slope);
+    for (size_t group = groups_idx; group < groups_idx + row_groups; group++)
+    {
+        bool use_upper_nibble = ((group % 2) == 0);
+        uint8x16_t deltas = load_base_indices(group, comp_sp->delta_indices, use_upper_nibble);
+        const uint8_t extension_map = load_extension_map(group, comp_sp->bitmaps, use_upper_nibble);
+        deltas = bit_extend(deltas, extension_map, comp_sp->bitmasks, bitmasks_idx);
+
+        /* Add extended delta values to base slope*/
+        const uint8x16_t uidx = vaddq_u8(idx_base, deltas);
+
+        /* Store to output buffer with lane predication*/
+        const mve_pred16_t p = vctp8q(row_elements - SIMD_GROUP_SIZE * (group - groups_idx));
+        vst1q_p(indices_buffer + (group - groups_idx) * SIMD_GROUP_SIZE, uidx, p);
+    }
+#endif
+    return ARM_CMSIS_NN_SUCCESS;
+}
+
+arm_cmsis_nn_status group_offsets(
+    const int8_t *offsets,
+    const uint8_t slope,
+    int16_t *buffer,
+    const uint32_t row_groups)
+{
+    int32_t group_offset = 0;
+    for (size_t group = 0; group < row_groups; group++)
+    {
+        group_offset += offsets[group];
+        buffer[group] = group_offset;
+        group_offset = slope * SIMD_GROUP_SIZE;
+    }
+    return ARM_CMSIS_NN_SUCCESS;
+}
+
 /**
  * @} end of Doxygen group
  */

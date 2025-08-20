@@ -125,6 +125,8 @@ def rosko_packing(adj_mat, path):
     f.close()
 
 def fourrows_packing(matrix, path):
+    countmapping = {(1, 1, 1, 1): 0, (1, 1, 1, 0): 0, (1, 1, 0, 1): 0, (1, 0, 1, 1): 0, (0, 1, 1, 1): 0, (1, 1, 0, 0): 0, (1, 0, 1, 0): 0, (1, 0, 0, 1): 0, (0, 1, 1, 0): 0, (0, 1, 0, 1): 0, (0, 0, 1, 1): 0, (1, 0, 0, 0): 0, (0, 1, 0, 0): 0, (0, 0, 1, 0): 0, (0, 0, 0, 1): 0} 
+    colschunk = 0
     mapping = {(1, 1, 1, 1): [], (1, 1, 1, 0): [], (1, 1, 0, 1): [], (1, 0, 1, 1): [], (0, 1, 1, 1): [], (1, 1, 0, 0): [], (1, 0, 1, 0): [], (1, 0, 0, 1): [], (0, 1, 1, 0): [], (0, 1, 0, 1): [], (0, 0, 1, 1): [], (1, 0, 0, 0): [], (0, 1, 0, 0): [], (0, 0, 1, 0): [], (0, 0, 0, 1): []}
     pattern_matrix = np.where(matrix != 0, 1, 0)
     if matrix.shape[0] % 4:
@@ -149,6 +151,7 @@ def fourrows_packing(matrix, path):
         start_idx = str(start_idx_cnt) + ', '
 
         for k, v in mapping.items():
+            countmapping[k] += len(v)
             non_zero_indices = [i for i, val in enumerate(k) if val != 0]
             for idx in v:
                 col_idx += str(idx) + ', '
@@ -164,26 +167,32 @@ def fourrows_packing(matrix, path):
         col += col_idx + '\n'
         start += start_idx + '\n'
 
-    if not os.path.exists('{}/fourrows'.format(path)):
-        try:
-            os.makedirs('{}/fourrows'.format(path))
-        except Exception as e:
-            print(f"創建資料夾時發生錯誤: {e}")
+    for key, value in countmapping.items():
+        print(key, end=": ")
+        print(value)
+        colschunk += value
+    print("colschunk: ", colschunk)
 
-    data_path = '{}/fourrows/nz_val.txt'.format(path)
-    f = open(data_path, "w+")
-    f.write(nzv)
-    f.close()
+    # if not os.path.exists('{}/fourrows'.format(path)):
+    #     try:
+    #         os.makedirs('{}/fourrows'.format(path))
+    #     except Exception as e:
+    #         print(f"創建資料夾時發生錯誤: {e}")
 
-    idx_path = '{}/fourrows/col_idx.txt'.format(path)
-    f = open(idx_path, "w+")
-    f.write(col)
-    f.close()
+    # data_path = '{}/fourrows/nz_val.txt'.format(path)
+    # f = open(data_path, "w+")
+    # f.write(nzv)
+    # f.close()
 
-    ptr_path = '{}/fourrows/start_idx.txt'.format(path)
-    f = open(ptr_path, "w+")
-    f.write(start)
-    f.close()
+    # idx_path = '{}/fourrows/col_idx.txt'.format(path)
+    # f = open(idx_path, "w+")
+    # f.write(col)
+    # f.close()
+
+    # ptr_path = '{}/fourrows/start_idx.txt'.format(path)
+    # f = open(ptr_path, "w+")
+    # f.write(start)
+    # f.close()
 
 def csr_packing(matrix, path):
     csr_idx = ''
@@ -302,9 +311,9 @@ def gen_random_input(row, col, path):
 
 if __name__ == '__main__':
     weight = []
-    path = '../adj_data/SpMM'
-    LHS_H = 49
-    LHS_W = 160
+    path = '../adj_data/DCT'
+    LHS_H = 256
+    LHS_W = 256
 
     with open('{}/adj_mx.txt'.format(path), 'r', encoding='utf-8') as f:
         for line in f:
@@ -317,8 +326,8 @@ if __name__ == '__main__':
     print("current sparsity: ", end='')
     print(1 - np.count_nonzero(matrix) / (matrix.shape[0] * matrix.shape[1]))
     print("shape: ", matrix.shape)
-
+    print("non-zeros: ", np.count_nonzero(matrix))
     fourrows_packing(matrix, path)
-    csr_packing(matrix, path)
-    rosko_packing(matrix, path)
-    gen_random_input(160, 960, path)
+    # csr_packing(matrix, path)
+    # rosko_packing(matrix, path)
+    # gen_random_input(160, 960, path)

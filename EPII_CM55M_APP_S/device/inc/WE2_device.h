@@ -18,5 +18,4 @@
 #include "WE2_device_addr.h"
 #include CMSIS_device_header
 
-
 #endif /* DEVICE_INC_WE2_DEVICE_H_ */

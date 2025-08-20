@@ -1,6 +1,6 @@
 import os
 
-path = "../adj_data/wav2letter_op5"
+path = "../adj_data/DCT"
 os.chdir(path)
 
 csr_count = 0

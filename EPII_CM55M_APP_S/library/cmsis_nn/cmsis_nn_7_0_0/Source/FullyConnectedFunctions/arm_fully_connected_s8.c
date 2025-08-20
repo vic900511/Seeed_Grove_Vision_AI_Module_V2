@@ -123,6 +123,83 @@ arm_cmsis_nn_status arm_csr_s8_lr(const cmsis_nn_context *ctx,
     return (ARM_CMSIS_NN_SUCCESS);
 }
 
+arm_cmsis_nn_status arm_dcsr(const cmsis_nn_context *ctx,
+                              const cmsis_nn_fc_params *fc_params,
+                              const cmsis_nn_per_tensor_quant_params *quant_params,
+                              const cmsis_nn_dims *input_dims,
+                              uint8_t *idx_buffer,
+                              int16_t *group_buffer,
+                              const int8_t *values,
+                              const uint8_t *bitmaps,
+                              const uint16_t *bitmasks, 
+                              const uint8_t *delta_indices, 
+                              const int16_t *row_offsets, 
+                              const int8_t *minimums, 
+                              const uint32_t nnze,
+                              const cmsis_nn_dims *filter_dims, 
+                              const int8_t *kernel,
+                              const cmsis_nn_dims *output_dims,
+                              int8_t *output) 
+{
+    const compressed_sparsity comp_sp = {
+    .bitmaps = bitmaps,
+    .bitmasks = bitmasks,
+    .delta_indices = delta_indices,
+    .row_offsets = row_offsets,
+    .group_minimums = minimums,
+    .nnze = nnze};
+
+    int32_t matrix_rows = input_dims->n;
+    int32_t matrix_cols = input_dims->c;
+
+    uint32_t groups_idx = 0; 
+    uint32_t values_idx = 0;
+    uint32_t bitmasks_idx = 0;
+
+    const uint32_t avg_row_len = nnze / matrix_rows;
+
+    for(int row = 0; row < matrix_rows; row++) {
+        const uint32_t row_len = avg_row_len + row_offsets[row];
+        const uint32_t slope = (matrix_cols + row_len / 2) / row_len;
+        const uint32_t num_groups = (row_len + 15) / 16;
+
+        group_offsets(
+            comp_sp.group_minimums + groups_idx,
+            slope,
+            group_buffer, // store base
+            num_groups
+        );
+
+        uint32_t bitmasks_idx_temp = bitmasks_idx;
+        sparse_extract_row_indices(
+            &comp_sp,
+            row_len,
+            num_groups,
+            slope,
+            &bitmasks_idx_temp,
+            groups_idx,
+            idx_buffer // store delta idx
+        );
+
+        arm_nn_dcsr_s8_for_bmm(
+            values, 
+            kernel, 
+            group_buffer, 
+            idx_buffer, 
+            row_len, 
+            num_groups, 
+            filter_dims->c,
+            output
+        );
+        memset(group_buffer, 0, num_groups);    
+        memset(idx_buffer, 0, row_len);    
+        groups_idx += num_groups;
+        values += row_len;
+        output += output_dims->c;
+    }
+    return (ARM_CMSIS_NN_SUCCESS);
+}
+
 arm_cmsis_nn_status arm_rosko(const cmsis_nn_context *ctx,
                               const cmsis_nn_fc_params *fc_params,
                               const cmsis_nn_per_tensor_quant_params *quant_params,

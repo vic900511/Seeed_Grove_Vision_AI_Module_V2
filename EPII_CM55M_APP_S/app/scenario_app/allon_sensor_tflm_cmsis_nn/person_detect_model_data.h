@@ -3,14 +3,11 @@
 
 #include <stdint.h>
 
-#define LHS_ROW 100
-#define LHS_COL 700
-#define RHS_ROW 700
-#define RHS_COL 142
+#define LHS_ROW 49
+#define LHS_COL 160
+#define RHS_ROW 160
+#define RHS_COL 960
 
-extern const int input_h_start, input_h_end, input_w_start, input_w_end, input_c;
-extern const int filter_h, filter_w;
-extern const int stride_h, stride_w;
 extern const int8_t Input[];
 extern const int8_t adj_mx[];
 extern const int8_t nz_val[];
@@ -23,5 +20,15 @@ extern const int8_t A_p[];
 extern const int32_t loc_m[];
 extern const int32_t col_idx_rosko[];
 extern const int32_t nnz[];
+
+extern const int8_t values[];
+extern const uint16_t bitmasks[];
+extern const uint8_t bitmaps[];
+extern const uint8_t delta_indices[];
+extern const int8_t minimums[];
+extern const int16_t row_offsets[];
+extern const uint32_t nnze;
+extern uint8_t idx_buffer[];
+extern int16_t group_buffer[];
 
 #endif

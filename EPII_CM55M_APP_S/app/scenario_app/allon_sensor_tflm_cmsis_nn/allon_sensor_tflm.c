@@ -82,7 +82,13 @@
 #define DWT_CYCCNT_STOP() DWT->CTRL &= ~DWT_CTRL_CYCCNTENA_Msk
 #define DWT_CYCCNT_RESET() DWT->CYCCNT = 0
 #define DWT_CYCCNT_GET() (DWT->CYCCNT)
-#define DWT_CYCCNT_EN() CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk
+
+#define PMU_ENABLE() PMU->CTRL |= PMU_CTRL_ENABLE_Msk
+#define PMU_RESET() PMU->CTRL |= (PMU_CTRL_CYCCNT_RESET_Msk | PMU_CTRL_EVENTCNT_RESET_Msk)
+
+#define DWT_CYCCNT_EN() CoreDebug->DEMCR |= (CoreDebug_DEMCR_TRCENA_Msk | CoreDebug_DEMCR_MON_EN_Msk)
+
+// volatile uint32_t overflow_cnt = 0;
 
 void initialize_BMM_metadata(cmsis_nn_fc_params *fc_params, cmsis_nn_per_tensor_quant_params *quant_params, cmsis_nn_dims *input_dims, cmsis_nn_dims *filter_dims, cmsis_nn_dims *output_dims) {
     fc_params->input_offset = 0;
@@ -119,9 +125,11 @@ void BMM_Csr_test_lr(const int8_t *csr_data, const int32_t *csr_indices, const i
     const int32_t *bias = NULL;
     const cmsis_nn_dims *bias_dims = NULL;
     initialize_BMM_metadata(&fc_params, &quant_params, &input_dims, &filter_dims, &output_dims);
+
+    // PMU->CNTENSET |= (PMU_CNTENSET_CNT0_ENABLE_Msk | PMU_CNTENSET_CCNTR_ENABLE_Msk);
+    // PMU_RESET();
     DWT_CYCCNT_START();
     DWT_CYCCNT_RESET();
-
     arm_csr_s8_lr(
         ctx, &fc_params, &quant_params, &input_dims,
         csr_data, csr_indices, csr_ptr,
@@ -129,10 +137,17 @@ void BMM_Csr_test_lr(const int8_t *csr_data, const int32_t *csr_indices, const i
         bias_dims, bias,
         &output_dims, output
     );
-
     uint32_t cyccnt = DWT_CYCCNT_GET();
     DWT_CYCCNT_STOP();
-    printf("bmm(Csr lr) Cycle Count: %ld\n", cyccnt);
+    printf("bmm(CSR) Cycle Count: %ld\n", cyccnt);
+    // uint32_t cycle_cnt = PMU->CCNTR;
+    // uint16_t event_cnt = PMU->EVCNTR[0];
+    // PMU->CNTENCLR |= (PMU_CNTENCLR_CNT0_ENABLE_Msk | PMU_CNTENCLR_CCNTR_ENABLE_Msk);
+    // printf("bmm(csr lr) Cycle Count: %ld\n", cycle_cnt);
+    // printf("%ld\n", overflow_cnt);
+    // printf("bmm(csr lr) event Count: %ld\n", event_cnt);
+    // overflow_cnt = 0;
+
 	return;
 }
 
@@ -144,22 +159,63 @@ void BMM_Rosko(const int8_t *A_p, const int32_t *loc_m, const int32_t *col_idx_r
     const int32_t *bias = NULL;
     const cmsis_nn_dims *bias_dims = NULL;
     initialize_BMM_metadata(&fc_params, &quant_params, &input_dims, &filter_dims, &output_dims);
+
+    // PMU->CNTENSET |= (PMU_CNTENSET_CNT0_ENABLE_Msk | PMU_CNTENSET_CCNTR_ENABLE_Msk);
+    // PMU_RESET();
     DWT_CYCCNT_START();
     DWT_CYCCNT_RESET();
-
     arm_rosko(
         ctx, &fc_params, &quant_params, &input_dims,
         A_p, loc_m, col_idx_rosko, nnz,
         &filter_dims, input,
         &output_dims, output
     );
-
     uint32_t cyccnt = DWT_CYCCNT_GET();
     DWT_CYCCNT_STOP();
     printf("bmm(Rosko) Cycle Count: %ld\n", cyccnt);
+    // uint32_t cycle_cnt = PMU->CCNTR;
+    // uint16_t event_cnt = PMU->EVCNTR[0];
+    // PMU->CNTENCLR |= (PMU_CNTENCLR_CNT0_ENABLE_Msk | PMU_CNTENCLR_CCNTR_ENABLE_Msk);
+    // printf("bmm(Rosko) Cycle Count: %ld\n", cycle_cnt);
+    // printf("%ld\n", overflow_cnt);
+    // printf("bmm(Rosko) event Count: %ld\n", event_cnt);
+    // overflow_cnt = 0;
 	return;
 }
 
+void BMM_DCSR(uint8_t *idx_buffer, int16_t *group_buffer, const int8_t *values, const uint8_t *bitmaps, const uint16_t *bitmasks, const uint8_t *delta_indices, const int16_t *row_offsets, const int8_t *minimums, const uint32_t nnze, int8_t *input, int8_t *output) {
+	cmsis_nn_context *ctx = NULL;
+    cmsis_nn_fc_params fc_params;
+    cmsis_nn_per_tensor_quant_params quant_params;
+    cmsis_nn_dims input_dims, filter_dims, output_dims;
+    const int32_t *bias = NULL;
+    const cmsis_nn_dims *bias_dims = NULL;
+    initialize_BMM_metadata(&fc_params, &quant_params, &input_dims, &filter_dims, &output_dims);
+
+    // PMU->CNTENSET |= (PMU_CNTENSET_CNT0_ENABLE_Msk | PMU_CNTENSET_CCNTR_ENABLE_Msk);
+    // PMU_RESET();
+    DWT_CYCCNT_START();
+    DWT_CYCCNT_RESET();
+
+    arm_dcsr(
+        ctx, &fc_params, &quant_params, &input_dims,
+        idx_buffer, group_buffer, values, bitmaps, bitmasks, delta_indices, row_offsets, minimums, nnze,
+        &filter_dims, input,
+        &output_dims, output
+    );
+
+    uint32_t cyccnt = DWT_CYCCNT_GET();
+    DWT_CYCCNT_STOP();
+    printf("bmm(DCSR) Cycle Count: %ld\n", cyccnt);
+    // uint32_t cycle_cnt = PMU->CCNTR;
+    // uint16_t event_cnt = PMU->EVCNTR[0];
+    // PMU->CNTENCLR |= (PMU_CNTENCLR_CNT0_ENABLE_Msk | PMU_CNTENCLR_CCNTR_ENABLE_Msk);
+    // printf("bmm(DCSR) Cycle Count: %ld\n", cycle_cnt);
+    // printf("%ld\n", overflow_cnt);
+    // printf("bmm(DCSR) event Count: %ld\n", event_cnt);
+    // overflow_cnt = 0;
+	return;
+}
 
 void BMM_Fourrows_test_consec(const int8_t *nz_val, const int32_t *col_idx, const int32_t *start_idx, int8_t *input, int8_t *output) {
 	cmsis_nn_context *ctx = NULL;
@@ -169,19 +225,30 @@ void BMM_Fourrows_test_consec(const int8_t *nz_val, const int32_t *col_idx, cons
     const int32_t *bias = NULL;
     const cmsis_nn_dims *bias_dims = NULL;
     initialize_BMM_metadata(&fc_params, &quant_params, &input_dims, &filter_dims, &output_dims);
+    
+    // PMU->CNTENSET |= (PMU_CNTENSET_CNT0_ENABLE_Msk | PMU_CNTENSET_CCNTR_ENABLE_Msk);
+    // PMU_RESET();
     DWT_CYCCNT_START();
     DWT_CYCCNT_RESET();
-
+    
     arm_fourrows_s8_consecutive(
         ctx, &fc_params, &quant_params, &input_dims,
         nz_val, col_idx, start_idx,
         &filter_dims, input,
         &output_dims, output
     );
-
+    
     uint32_t cyccnt = DWT_CYCCNT_GET();
     DWT_CYCCNT_STOP();
-    printf("bmm(Fourrows Consecutive) Cycle Count: %ld\n", cyccnt);
+    printf("bmm(Fourrows Consec) Cycle Count: %ld\n", cyccnt);
+    // uint32_t cycle_cnt = PMU->CCNTR;
+    // uint16_t event_cnt = PMU->EVCNTR[0];
+    // PMU->CNTENCLR |= (PMU_CNTENCLR_CNT0_ENABLE_Msk | PMU_CNTENCLR_CCNTR_ENABLE_Msk);
+    // printf("bmm(Fourrows consec) Cycle Count: %ld\n", cycle_cnt);
+    // printf("%ld\n", overflow_cnt);
+    // printf("bmm(Fourrows consec) event Count: %ld\n", event_cnt);
+    // overflow_cnt = 0;
+
 	return;
 }
 
@@ -221,8 +288,11 @@ void BMM_FC_test(const int8_t *adj_mat, int8_t *input, int8_t *output) {
     int32_t buffer[RHS_COL] = {0};
     ctx->buf = (void *)buffer;
 
+    // PMU->CNTENSET |= (PMU_CNTENSET_CNT0_ENABLE_Msk | PMU_CNTENSET_CCNTR_ENABLE_Msk);
+    // PMU_RESET();
     DWT_CYCCNT_START();
     DWT_CYCCNT_RESET();
+
  	arm_fully_connected_s8(
         ctx, &fc_params, &quant_params, &input_dims,
         adj_mat, &filter_dims,
@@ -232,6 +302,14 @@ void BMM_FC_test(const int8_t *adj_mat, int8_t *input, int8_t *output) {
     uint32_t cyccnt = DWT_CYCCNT_GET();
     DWT_CYCCNT_STOP();
     printf("bmm(FC) Cycle Count: %ld\n", cyccnt);
+
+    // uint32_t cycle_cnt = PMU->CCNTR;
+    // uint16_t event_cnt = PMU->EVCNTR[0];
+    // PMU->CNTENCLR |= (PMU_CNTENCLR_CNT0_ENABLE_Msk | PMU_CNTENCLR_CCNTR_ENABLE_Msk);
+    // printf("bmm(FC) Cycle Count: %ld\n", cycle_cnt);
+    // printf("%ld\n", overflow_cnt);
+    // printf("bmm(FC) event Count: %ld\n", event_cnt);
+    // overflow_cnt = 0;
 	return;
 }
 
@@ -254,36 +332,47 @@ void print_output(int8_t *output, char *msg) {
  */
 int app_main(void) {
     DWT_CYCCNT_EN();
+    // PMU_ENABLE();
+    // PMU->EVTYPER[0] = 0x39;
+    // PMU->INTENSET = (1 << 0);
+
+    // im2col
+    // static int8_t input[RHS_ROW * RHS_COL] __attribute__((section(".arr"), aligned(4))) = {0};
+	// static int8_t input_T[RHS_COL * RHS_ROW] __attribute__((section(".arr"), aligned(4))) = {0};
+    // static int8_t output[LHS_ROW * RHS_COL] __attribute__((section(".arr"), aligned(4))) = {0};
+
+    // int im2col_cnt = 0;
+    // for(int i = input_h_start; i < input_h_end; i += stride_h) {
+    //     int slide_h = i + filter_h;
+    //     if(slide_h > input_h_end) {            
+    //         break;
+    //     }
+    //     for(int j = input_w_start; j < input_w_end; j += stride_w) {
+    //         int slide_w = j + filter_w;
+    //         if(slide_w > input_w_end) {                
+    //             break;
+    //         }
+    //         // c -> w -> h
+    //         int8_t *input_buf = input + im2col_cnt;
+    //         for(int h = i; h < slide_h; h++) {
+    //             for(int w = j; w < slide_w; w++) {
+    //                 for(int c = 0; c < input_c; c++) {
+    //                     int idx = c + w * input_c + h * input_w_end * input_c;
+    //                     *input_buf = Input[idx];
+    //                     input_buf += RHS_COL;
+    //                 }
+    //             }
+    //         }
+    //         im2col_cnt++;
+    //     }
+    // }
+    // printf("im2colcnt: %d\n", im2col_cnt);
+
     static int8_t input[RHS_ROW * RHS_COL] __attribute__((section(".arr"), aligned(4))) = {0};
-	static int8_t input_T[RHS_COL * RHS_ROW] __attribute__((section(".arr"), aligned(4))) = {0};
+    static int8_t input_T[RHS_COL * RHS_ROW] __attribute__((section(".arr"), aligned(4))) = {0};
     static int8_t output[LHS_ROW * RHS_COL] __attribute__((section(".arr"), aligned(4))) = {0};
 
-    int im2col_cnt = 0;
-    for(int i = input_h_start; i < input_h_end; i += stride_h) {
-        int slide_h = i + filter_h;
-        if(slide_h > input_h_end) {            
-            break;
-        }
-        for(int j = input_w_start; j < input_w_end; j += stride_w) {
-            int slide_w = j + filter_w;
-            if(slide_w > input_w_end) {                
-                break;
-            }
-            // c -> w -> h
-            int8_t *input_buf = input + im2col_cnt;
-            for(int h = i; h < slide_h; h++) {
-                for(int w = j; w < slide_w; w++) {
-                    for(int c = 0; c < input_c; c++) {
-                        int idx = c + w * input_c + h * input_w_end * input_c;
-                        *input_buf = Input[idx];
-                        input_buf += RHS_COL;
-                    }
-                }
-            }
-            im2col_cnt++;
-        }
-    }
-    printf("im2colcnt: %d\n", im2col_cnt);
+    memcpy(input, Input, RHS_ROW * RHS_COL);
 
     int idx = 0;
     for(int i = 0; i < RHS_COL; i++) {
@@ -291,55 +380,29 @@ int app_main(void) {
             input_T[idx++] = input[i + j * RHS_COL];
         }
     }
-	
+
     BMM_FC_test(adj_mx, input_T, output); 
-    // print_output(output, "FC result:\n");
+    // print_output(output, "FC result:\n"); 
 
     memset(output, 0, sizeof(output));
     BMM_Csr_test_lr(csr_data, csr_indices, csr_ptr, input, output); 
-    // print_output(output, "Csr lr result:\n");
-
-    memset(output, 0, sizeof(output));
-    BMM_Fourrows_test_tiling(nz_val, col_idx, start_idx, input, output);
-    // print_output(output, "Fourrows Tiling result:\n");
-
-    memset(output, 0, sizeof(output)); 
-    BMM_Fourrows_test_consec(nz_val, col_idx, start_idx, input, output);
-    // print_output(output, "Fourrows consecutive result:\n"); 
-    
-    memset(output, 0, sizeof(output)); 
-    BMM_Rosko(A_p, loc_m, col_idx_rosko, nnz, input, output);
-    // print_output(output, "Rosko result:\n"); 
-
-    /* GNN FC & FIR */
-    // static int8_t input[RHS_ROW * RHS_COL] __attribute__((section(".arr"), aligned(4))) = {0};
-    // static int8_t input_T[RHS_COL * RHS_ROW] __attribute__((section(".arr"), aligned(4))) = {0};
-    // static int8_t output[LHS_ROW * RHS_COL] __attribute__((section(".arr"), aligned(4))) = {0};
-
-    // memcpy(input, Input, RHS_ROW * RHS_COL);
-    // int idx = 0;
-    // for(int i = 0; i < RHS_COL; i++) {
-    //     for(int j = 0; j < RHS_ROW; j++) {
-    //         input_T[idx++] = input[i + j * RHS_COL];
-    //     }
-    // }
-    // BMM_FC_test(adj_mx, input_T, output); 
-    // print_output(output, "FC result:\n"); 
-
-    // memset(output, 0, sizeof(output));
-    // BMM_Csr_test_lr(csr_data, csr_indices, csr_ptr, input, output); 
     // print_output(output, "Csr lr result:\n");
 
     // memset(output, 0, sizeof(output));
     // BMM_Fourrows_test_tiling(nz_val, col_idx, start_idx, input, output); 
     // print_output(output, "Fourrows Tiling result:\n");
 
-    // memset(output, 0, sizeof(output));
-    // BMM_Fourrows_test_consec(nz_val, col_idx, start_idx, input, output); 
+    memset(output, 0, sizeof(output));
+    BMM_Fourrows_test_consec(nz_val, col_idx, start_idx, input, output); 
     // print_output(output, "Fourrows consecutive result:\n");
 
-    // memset(output, 0, sizeof(output)); 
-    // BMM_Rosko(A_p, loc_m, col_idx_rosko, nnz, input, output);
+    memset(output, 0, sizeof(output)); 
+    BMM_Rosko(A_p, loc_m, col_idx_rosko, nnz, input, output);
     // print_output(output, "Rosko result:\n"); 
-	return 0;
+
+    memset(output, 0, sizeof(output)); 
+    BMM_DCSR(idx_buffer, group_buffer, values, bitmaps, bitmasks, delta_indices, row_offsets, minimums, nnze, input, output);
+    // print_output(output, "DCSR result:\n"); 
+    
+    return 0;
 }

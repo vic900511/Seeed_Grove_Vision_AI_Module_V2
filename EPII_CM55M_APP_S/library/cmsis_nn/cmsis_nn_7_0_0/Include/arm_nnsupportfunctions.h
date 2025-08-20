@@ -729,10 +729,48 @@ arm_cmsis_nn_status arm_nn_lr_csr_s8_for_bmm(const int8_t *data_arr,
                                              int8_t *dst,
                                              const int32_t rhs_cols);
 
+arm_cmsis_nn_status arm_nn_dcsr_s8_for_bmm(const int8_t *data_arr, 
+                                        const int8_t *rhs,
+                                        const int16_t *group_buffer, 
+                                        const uint8_t *idx_buffer, 
+                                        const uint32_t row_len, 
+                                        const uint32_t num_groups, 
+                                        const int32_t rhs_cols,
+                                        int8_t *dst);
+
 arm_cmsis_nn_status arm_nn_fourrows_s8_for_bmm(const int8_t lhs_val,
                                                const int8_t *rhs_vec, 
                                                int8_t *dst,
                                                const int32_t rhs_col);
+
+typedef struct
+{
+	const uint8_t *bitmaps;
+	const uint16_t *bitmasks;
+	const uint8_t *delta_indices;
+	const int16_t *row_offsets;
+	const int8_t *group_minimums;
+	const uint32_t nnze;
+} compressed_sparsity;
+
+#define SIMD_GROUP_SIZE 16
+#define BASE_BITS 4      
+#define EXTENSION_BITS 4
+
+arm_cmsis_nn_status sparse_extract_row_indices(
+    const compressed_sparsity *comp_sp,
+    const uint32_t row_elements,
+    const uint32_t row_groups,
+    const uint32_t slope,
+    uint32_t *bitmasks_idx,
+    uint32_t groups_idx,
+    uint8_t *indices_buffer);
+
+arm_cmsis_nn_status group_offsets(
+    const int8_t *offsets,
+    const uint8_t slope,
+    int16_t *buffer,
+    const uint32_t row_groups);
 
 /**
  * @brief s8 Vector by Matrix (transposed) multiplication using per channel quantization for output
